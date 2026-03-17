@@ -39,69 +39,130 @@
 
   <main class="layout">
     <section class="panel">
-      <h2>선택된 요소</h2>
+      <h2>현재 선택</h2>
       <div class="card">
+        <div class="row"><div class="k">요소 이름</div><div class="v" id="elementNameText">아직 선택하지 않았어요</div></div>
         <div class="row"><div class="k">상태</div><div class="v" id="statusText">대기 중…</div></div>
-        <div class="row"><div class="k">Selector</div><div class="v mono" id="selectorText">—</div></div>
-        <div class="row"><div class="k">Tag</div><div class="v mono" id="tagText">—</div></div>
-        <div class="row"><div class="k">Track ID</div><div class="v mono" id="trackIdText">—</div></div>
         <div class="row"><div class="k">Text</div><div class="v" id="textText">—</div></div>
-        <div class="row"><div class="k">Rect</div><div class="v mono" id="rectText">—</div></div>
+        <div class="row"><div class="k">크기</div><div class="v mono" id="rectText">—</div></div>
+        <details class="advancedBox compact">
+          <summary>기술 정보 보기</summary>
+          <div class="row"><div class="k">Selector</div><div class="v mono" id="selectorText">—</div></div>
+          <div class="row"><div class="k">Tag</div><div class="v mono" id="tagText">—</div></div>
+          <div class="row"><div class="k">Track ID</div><div class="v mono" id="trackIdText">—</div></div>
+        </details>
       </div>
 
-      <h2>변경 생성 (Variant B)</h2>
+      <h2>Variant B 만들기</h2>
       <div class="card">
-        <div class="formRow">
-          <label class="formLabel">Action</label>
-          <select id="actionType">
-            <option value="set_text">set_text (텍스트 변경)</option>
-            <option value="set_style">set_style (스타일/크기/이동)</option>
-            <option value="hide">hide (숨김)</option>
-            <option value="show">show (표시)</option>
-            <option value="add_class">add_class</option>
-            <option value="remove_class">remove_class</option>
-            <option value="set_attr">set_attr (속성 설정)</option>
-            <option value="inject_css">inject_css (CSS 주입)</option>
-          </select>
+        <div class="sectionIntro">
+          바꾸고 싶은 요소를 클릭한 뒤, 아래에서 원하는 작업을 고르세요. 기술 용어는 숨기고, 자주 쓰는 실험만 바로 만들 수 있게 구성했어요.
         </div>
 
-        <div class="formRow" id="valueRow">
-          <label class="formLabel">Value</label>
-          <input id="actionValue" type="text" placeholder="예: ✅ 결제하고 끝내기 / primary" />
+        <div class="intentGroup" id="intentGroup">
+          <button type="button" class="intentBtn active" data-mode="text">문구 바꾸기</button>
+          <button type="button" class="intentBtn" data-mode="style">스타일 조정</button>
+          <button type="button" class="intentBtn" data-mode="visibility">보이기/숨기기</button>
+          <button type="button" class="intentBtn" data-mode="link">링크 바꾸기</button>
+          <button type="button" class="intentBtn" data-mode="advanced">고급 편집</button>
         </div>
 
-        <div class="formRow" id="attrRow" style="display:none;">
-          <label class="formLabel">Attr</label>
-          <div class="attrGrid">
-            <input id="attrName" type="text" placeholder="name (예: href, aria-label)" />
-            <input id="attrValue" type="text" placeholder="value (예: /checkout)" />
+        <div class="modePanel" id="textPanel">
+          <div class="formRow" id="valueRow">
+            <label class="formLabel">새 문구</label>
+            <input id="actionValue" type="text" placeholder="예: 지금 결제하기 / 무료 배송 보기" />
           </div>
+          <div class="hint">버튼, 제목, 설명 문구처럼 텍스트가 중심인 요소에 적합해요.</div>
         </div>
 
-        <div class="formRow" id="cssRow" style="display:none;">
-          <label class="formLabel">CSS</label>
-          <textarea id="cssValue" rows="5" placeholder='예:
+        <div class="modePanel" id="stylePanel" style="display:none;">
+          <div class="styleGrid">
+            <label class="fieldCard"><span>가로(px)</span><input id="styleWidth" type="number" min="0" placeholder="예: 320" /></label>
+            <label class="fieldCard"><span>세로(px)</span><input id="styleHeight" type="number" min="0" placeholder="예: 72" /></label>
+            <label class="fieldCard"><span>글자 크기(px)</span><input id="styleFontSize" type="number" min="0" placeholder="예: 18" /></label>
+            <label class="fieldCard"><span>글자 굵기</span><select id="styleFontWeight"><option value="">변경 안 함</option><option value="500">보통보다 약간 굵게</option><option value="600">중간 강조</option><option value="700">강조</option><option value="800">강한 강조</option></select></label>
+            <label class="fieldCard"><span>둥근 정도(px)</span><input id="styleRadius" type="number" min="0" placeholder="예: 16" /></label>
+            <label class="fieldCard"><span>정렬</span><select id="styleTextAlign"><option value="">변경 안 함</option><option value="left">왼쪽</option><option value="center">가운데</option><option value="right">오른쪽</option></select></label>
+            <label class="fieldCard colorField"><span><input id="enableTextColor" type="checkbox" /> 글자 색</span><input id="styleTextColor" type="color" value="#111111" /></label>
+            <label class="fieldCard colorField"><span><input id="enableBackgroundColor" type="checkbox" /> 배경 색</span><input id="styleBackgroundColor" type="color" value="#6aa9ff" /></label>
+            <label class="fieldCard"><span>안쪽 여백 가로(px)</span><input id="stylePaddingX" type="number" min="0" placeholder="예: 24" /></label>
+            <label class="fieldCard"><span>안쪽 여백 세로(px)</span><input id="stylePaddingY" type="number" min="0" placeholder="예: 14" /></label>
+            <label class="fieldCard"><span>좌우 이동(px)</span><input id="styleMoveX" type="number" placeholder="예: 16" /></label>
+            <label class="fieldCard"><span>상하 이동(px)</span><input id="styleMoveY" type="number" placeholder="예: 8" /></label>
+          </div>
+          <div class="hint">위치 이동은 안전하게 `transform`으로 처리돼요. 아주 큰 이동보다는 살짝 강조하거나 정렬을 다듬는 데 쓰는 걸 권장해요.</div>
+        </div>
+
+        <div class="modePanel" id="visibilityPanel" style="display:none;">
+          <div class="choiceGroup">
+            <label class="choiceCard"><input type="radio" name="visibilityMode" value="show" checked /> <span>보이게 유지</span></label>
+            <label class="choiceCard"><input type="radio" name="visibilityMode" value="hide" /> <span>숨기기</span></label>
+          </div>
+          <div class="hint">특정 안내문, 배지, 배너처럼 노출 여부가 중요한 요소에 적합해요.</div>
+        </div>
+
+        <div class="modePanel" id="linkPanel" style="display:none;">
+          <div class="formRow">
+            <label class="formLabel">이동 주소</label>
+            <input id="linkHrefValue" type="text" placeholder="예: /checkout?campaign=ab" />
+          </div>
+          <div class="formRow">
+            <label class="formLabel">보조 설명</label>
+            <input id="linkLabelValue" type="text" placeholder="선택 사항: 보조 라벨이나 툴팁" />
+          </div>
+          <div class="hint">링크나 버튼 클릭 후 이동하는 주소를 바꾸고 싶을 때 사용해요.</div>
+        </div>
+
+        <details class="advancedBox" id="advancedEditorBox" style="display:none;">
+          <summary>고급 편집 열기</summary>
+          <div class="formRow topGap">
+            <label class="formLabel">기술 Action</label>
+            <select id="actionType">
+              <option value="set_text">set_text (텍스트 변경)</option>
+              <option value="set_style">set_style (스타일/크기/이동)</option>
+              <option value="hide">hide (숨김)</option>
+              <option value="show">show (표시)</option>
+              <option value="add_class">add_class</option>
+              <option value="remove_class">remove_class</option>
+              <option value="set_attr">set_attr (속성 설정)</option>
+              <option value="inject_css">inject_css (CSS 주입)</option>
+            </select>
+          </div>
+
+          <div class="formRow" id="attrRow" style="display:none;">
+            <label class="formLabel">Attr</label>
+            <div class="attrGrid">
+              <input id="attrName" type="text" placeholder="name (예: href, aria-label)" />
+              <input id="attrValue" type="text" placeholder="value (예: /checkout)" />
+            </div>
+          </div>
+
+          <div class="formRow" id="cssRow" style="display:none;">
+            <label class="formLabel">CSS</label>
+            <textarea id="cssValue" rows="5" placeholder='예:
 [data-track-id="pay_btn"]{ font-size:18px; padding:14px; }'></textarea>
-        </div>
+          </div>
 
-        <div class="formRow" id="styleRow" style="display:none; align-items:flex-start;">
-          <label class="formLabel">Style</label>
-          <textarea id="styleValue" rows="6" placeholder='예:
+          <div class="formRow" id="styleRow" style="display:none; align-items:flex-start;">
+            <label class="formLabel">Style</label>
+            <textarea id="styleValue" rows="6" placeholder='예:
 width: 320px;
 height: 72px;
 transform: translate(24px, 12px);
 font-size: 18px;
 padding: 16px 24px;'></textarea>
-        </div>
+          </div>
+
+          <div class="hint">
+            - 기술 Action, selector, raw CSS는 디버그/예외 처리용이에요.<br/>
+            - 일반적인 운영은 위의 쉬운 편집 모드만으로도 충분하게 설계하는 게 목표예요.
+          </div>
+        </details>
 
         <div class="btnRow">
           <button id="addChangeBtn" class="btn primary">변경 추가</button>
-
           <button id="applyNowBtn" class="btn">프리뷰 적용(B)</button>
-
-          <!-- ✅ Real 적용 버튼 -->
           <button id="realApplyBtn" class="btn primary">Real 적용(서버 저장)</button>
-
           <button id="openRealBtn" class="btn">Real 페이지 열기</button>
           <button id="clearChangesBtn" class="btn danger">모두 삭제</button>
         </div>
@@ -109,24 +170,30 @@ padding: 16px 24px;'></textarea>
         <div class="hint">
           - <b>프리뷰 적용</b>: iframe에서만 임시로 보임(저장 안 됨)<br/>
           - <b>Real 적용</b>: 서버에 저장/배포 → 실제 방문 시 SDK가 자동 A/B 실행
-          <br/>- <b>set_style</b>: width, height, transform, spacing, color 같은 CSS 선언을 selector 기준으로 적용
+          <br/>- 목표는 관리자가 코드 없이도 실험을 만들 수 있게 하는 것이고, 어려운 기능은 고급 편집 안으로 숨겨둘 거예요.
         </div>
       </div>
 
-      <h2>Variant B 변경 리스트</h2>
+      <h2>Variant B 변경 요약</h2>
       <div class="card">
         <div id="changesList" class="changes"></div>
-        <div class="btnRow">
-          <button id="exportJsonBtn" class="btn">JSON Export</button>
-          <button id="copyJsonBtn" class="btn">복사</button>
-        </div>
-        <textarea id="jsonBox" class="mono" rows="8" spellcheck="false"></textarea>
       </div>
 
-      <div class="card">
-        <h3>디버그</h3>
-        <div class="mono log" id="logBox"></div>
-      </div>
+      <details class="advancedBox">
+        <summary>고급 보기 (JSON/디버그)</summary>
+        <div class="card topGap">
+          <div class="btnRow">
+            <button id="exportJsonBtn" class="btn">JSON Export</button>
+            <button id="copyJsonBtn" class="btn">복사</button>
+          </div>
+          <textarea id="jsonBox" class="mono" rows="8" spellcheck="false"></textarea>
+        </div>
+
+        <div class="card">
+          <h3>디버그</h3>
+          <div class="mono log" id="logBox"></div>
+        </div>
+      </details>
     </section>
 
     <section class="stage">
