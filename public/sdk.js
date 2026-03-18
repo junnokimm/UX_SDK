@@ -132,6 +132,19 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
         if (t === "hide") el.style.display = "none";
         else if (t === "show") el.style.display = "";
         else if (t === "set_text") el.textContent = String(a.value ?? "");
+        else if (t === "set_style") {
+          const styles = a.styles && typeof a.styles === "object" ? a.styles : null;
+          if (!styles) return;
+          Object.entries(styles).forEach(([name, value]) => {
+            const prop = String(name || "").trim();
+            if (!prop) return;
+            if (value === null || value === undefined || String(value).trim() === "") {
+              el.style.removeProperty(prop);
+            } else {
+              el.style.setProperty(prop, String(value));
+            }
+          });
+        }
         else if (t === "add_class") el.classList.add(String(a.value ?? ""));
         else if (t === "remove_class") el.classList.remove(String(a.value ?? ""));
         else if (t === "set_attr") {

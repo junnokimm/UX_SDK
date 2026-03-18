@@ -11,6 +11,7 @@
   const expKeyInput = document.getElementById("expKey");
   const urlPrefixInput = document.getElementById("urlPrefix");
 
+  const elementNameText = document.getElementById("elementNameText");
   const statusText = document.getElementById("statusText");
   const selectorText = document.getElementById("selectorText");
   const tagText = document.getElementById("tagText");
@@ -20,7 +21,14 @@
   const logBox = document.getElementById("logBox");
 
   const actionType = document.getElementById("actionType");
+  const intentButtons = Array.from(document.querySelectorAll(".intentBtn"));
+  const textPanel = document.getElementById("textPanel");
+  const stylePanel = document.getElementById("stylePanel");
+  const visibilityPanel = document.getElementById("visibilityPanel");
+  const linkPanel = document.getElementById("linkPanel");
+  const advancedEditorBox = document.getElementById("advancedEditorBox");
   const valueRow = document.getElementById("valueRow");
+  const valueLabel = valueRow.querySelector(".formLabel");
   const actionValue = document.getElementById("actionValue");
 
   const attrRow = document.getElementById("attrRow");
@@ -29,6 +37,25 @@
 
   const cssRow = document.getElementById("cssRow");
   const cssValue = document.getElementById("cssValue");
+  const styleRow = document.getElementById("styleRow");
+  const styleValue = document.getElementById("styleValue");
+  const styleWidth = document.getElementById("styleWidth");
+  const styleHeight = document.getElementById("styleHeight");
+  const styleFontSize = document.getElementById("styleFontSize");
+  const styleFontWeight = document.getElementById("styleFontWeight");
+  const styleRadius = document.getElementById("styleRadius");
+  const styleTextAlign = document.getElementById("styleTextAlign");
+  const enableTextColor = document.getElementById("enableTextColor");
+  const styleTextColor = document.getElementById("styleTextColor");
+  const enableBackgroundColor = document.getElementById("enableBackgroundColor");
+  const styleBackgroundColor = document.getElementById("styleBackgroundColor");
+  const stylePaddingX = document.getElementById("stylePaddingX");
+  const stylePaddingY = document.getElementById("stylePaddingY");
+  const styleMoveX = document.getElementById("styleMoveX");
+  const styleMoveY = document.getElementById("styleMoveY");
+  const visibilityInputs = Array.from(document.querySelectorAll('input[name="visibilityMode"]'));
+  const linkHrefValue = document.getElementById("linkHrefValue");
+  const linkLabelValue = document.getElementById("linkLabelValue");
 
   const addChangeBtn = document.getElementById("addChangeBtn");
   const applyNowBtn = document.getElementById("applyNowBtn");
@@ -43,6 +70,7 @@
 
   let pickMode = true;
   let currentVariant = "A";
+  let currentComposerMode = "text";
   let lastSelected = null;
   let changesB = [];
 
@@ -123,6 +151,7 @@
   }
 
   function renderSelected(info) {
+    elementNameText.textContent = getFriendlyElementName(info);
     selectorText.textContent = info?.selector || "—";
     tagText.textContent = info?.tag || "—";
     trackIdText.textContent = info?.track_id || "—";
@@ -132,10 +161,297 @@
       : "—";
   }
 
+  function prettifyToken(value) {
+    return String(value || "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function truncateText(value, max) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  }
+
+  function getFriendlyElementName(info) {
+    const tag = String(info?.tag || "").toLowerCase();
+    const tagLabelMap = {
+      button: "버튼",
+      a: "링크",
+      img: "이미지",
+      input: "입력창",
+      textarea: "입력 영역",
+      h1: "제목",
+      h2: "제목",
+      h3: "제목",
+      p: "문단",
+      span: "텍스트",
+      div: "영역"
+    };
+    const tagLabel = tagLabelMap[tag] || (tag ? `${tag} 요소` : "요소");
+    const readableTrack = prettifyToken(info?.track_id);
+    const readableText = truncateText(info?.text, 26);
+
+    if (readableText && (tag === "button" || tag === "a")) {
+      return `"${readableText}" ${tagLabel}`;
+    }
+    if (readableText) {
+      return `"${readableText}" ${tagLabel}`;
+    }
+    if (readableTrack) {
+      return `${readableTrack} ${tagLabel}`;
+    }
+    return `선택한 ${tagLabel}`;
+  }
+
+  function parseOptionalNumber(inputEl) {
+    const raw = String(inputEl?.value || "").trim();
+    if (raw === "") return { ok: true, value: null };
+    const num = Number(raw);
+    if (!Number.isFinite(num)) return { ok: false, reason: `숫자를 확인하세요: ${raw}` };
+    return { ok: true, value: num };
+  }
+
+  function buildStyleObjectFromControls() {
+    const styles = {};
+    const pxFields = [
+      [styleWidth, "width"],
+      [styleHeight, "height"],
+      [styleFontSize, "font-size"],
+      [styleRadius, "border-radius"]
+    ];
+
+    for (const [inputEl, prop] of pxFields) {
+      const parsed = parseOptionalNumber(inputEl);
+      if (!parsed.ok) return parsed;
+      if (parsed.value !== null) styles[prop] = `${parsed.value}px`;
+    }
+
+    const paddingX = parseOptionalNumber(stylePaddingX);
+    if (!paddingX.ok) return paddingX;
+    if (paddingX.value !== null) {
+      styles["padding-left"] = `${paddingX.value}px`;
+      styles["padding-right"] = `${paddingX.value}px`;
+    }
+
+    const paddingY = parseOptionalNumber(stylePaddingY);
+    if (!paddingY.ok) return paddingY;
+    if (paddingY.value !== null) {
+      styles["padding-top"] = `${paddingY.value}px`;
+      styles["padding-bottom"] = `${paddingY.value}px`;
+    }
+
+    const moveX = parseOptionalNumber(styleMoveX);
+    if (!moveX.ok) return moveX;
+    const moveY = parseOptionalNumber(styleMoveY);
+    if (!moveY.ok) return moveY;
+    if (moveX.value !== null || moveY.value !== null) {
+      styles.transform = `translate(${moveX.value ?? 0}px, ${moveY.value ?? 0}px)`;
+    }
+
+    if (styleFontWeight.value) styles["font-weight"] = styleFontWeight.value;
+    if (styleTextAlign.value) styles["text-align"] = styleTextAlign.value;
+    if (enableTextColor.checked) styles.color = styleTextColor.value;
+    if (enableBackgroundColor.checked) styles["background-color"] = styleBackgroundColor.value;
+
+    if (Object.keys(styles).length === 0) {
+      return { ok: false, reason: "먼저 바꾸고 싶은 스타일 값을 하나 이상 입력하세요." };
+    }
+
+    return { ok: true, styles };
+  }
+
+  function getVisibilityMode() {
+    const checked = visibilityInputs.find((input) => input.checked);
+    return checked?.value === "hide" ? "hide" : "show";
+  }
+
+  function getStyleSummary(styles) {
+    const labels = {
+      width: "가로",
+      height: "세로",
+      "font-size": "글자 크기",
+      "font-weight": "글자 굵기",
+      "border-radius": "둥근 정도",
+      color: "글자 색",
+      "background-color": "배경 색",
+      "padding-left": "안쪽 여백",
+      transform: "위치 이동",
+      "text-align": "정렬"
+    };
+    const names = [];
+    for (const key of Object.keys(styles || {})) {
+      const label = labels[key];
+      if (label && !names.includes(label)) names.push(label);
+      if (names.length >= 3) break;
+    }
+    return names.length ? names.join(", ") : "스타일 조정";
+  }
+
+  function buildFriendlyDetail(change) {
+    if (change.type === "inject_css") {
+      return "고급 CSS 규칙이 추가돼요.";
+    }
+    const action = Array.isArray(change.actions) ? change.actions[0] : null;
+    if (!action) return "변경 상세 정보 없음";
+
+    if (action.type === "set_text") return `새 문구: ${String(action.value || "")}`;
+    if (action.type === "set_style") return `조정 항목: ${getStyleSummary(action.styles || {})}`;
+    if (action.type === "hide") return "선택한 요소를 숨겨요.";
+    if (action.type === "show") return "선택한 요소를 다시 보여줘요.";
+    if (action.type === "set_attr" && action.name === "href") return `이동 주소: ${String(action.value || "")}`;
+    if (action.type === "set_attr") return `속성 변경: ${action.name}`;
+    if (action.type === "add_class") return `클래스 추가: ${String(action.value || "")}`;
+    if (action.type === "remove_class") return `클래스 제거: ${String(action.value || "")}`;
+    return action.type;
+  }
+
+  function buildChangeLabel(change) {
+    if (change.type === "inject_css") return change.label || "고급 CSS 규칙 적용";
+
+    const name = change.element_name || getFriendlyElementName(lastSelected);
+    const action = Array.isArray(change.actions) ? change.actions[0] : null;
+    if (!action) return name;
+
+    if (action.type === "set_text") return `${name} 문구 변경`;
+    if (action.type === "set_style") return `${name} 스타일 조정`;
+    if (action.type === "hide") return `${name} 숨기기`;
+    if (action.type === "show") return `${name} 다시 보이기`;
+    if (action.type === "set_attr" && action.name === "href") return `${name} 링크 바꾸기`;
+    if (action.type === "set_attr") return `${name} 속성 변경`;
+    if (action.type === "add_class") return `${name} 클래스 추가`;
+    if (action.type === "remove_class") return `${name} 클래스 제거`;
+    return name;
+  }
+
+  function withChangeMeta(change, info) {
+    const base = { ...change };
+    if (base.type === "inject_css") {
+      base.label = base.label || "고급 CSS 규칙 적용";
+      base.detail = base.detail || "고급 사용자를 위한 사용자 정의 규칙이에요.";
+      return base;
+    }
+
+    base.element_name = getFriendlyElementName(info);
+    base.label = buildChangeLabel(base);
+    base.detail = buildFriendlyDetail(base);
+    return base;
+  }
+
+  function setComposerMode(mode) {
+    currentComposerMode = mode;
+    intentButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.mode === mode));
+
+    valueRow.style.display = mode === "text" ? "flex" : "none";
+    attrRow.style.display = "none";
+    cssRow.style.display = "none";
+    styleRow.style.display = "none";
+    textPanel.style.display = mode === "text" ? "block" : "none";
+    stylePanel.style.display = mode === "style" ? "block" : "none";
+    visibilityPanel.style.display = mode === "visibility" ? "block" : "none";
+    linkPanel.style.display = mode === "link" ? "block" : "none";
+    advancedEditorBox.style.display = mode === "advanced" ? "block" : "none";
+    if (mode === "advanced") {
+      advancedEditorBox.open = true;
+      actionType.dispatchEvent(new Event("change"));
+    }
+
+    if (mode === "text") {
+      valueLabel.textContent = "새 문구";
+      addChangeBtn.textContent = "문구 변경 추가";
+    } else if (mode === "style") {
+      addChangeBtn.textContent = "스타일 변경 추가";
+    } else if (mode === "visibility") {
+      addChangeBtn.textContent = "노출 변경 추가";
+    } else if (mode === "link") {
+      addChangeBtn.textContent = "링크 변경 추가";
+    } else {
+      addChangeBtn.textContent = "고급 변경 추가";
+    }
+  }
+
+  function parseStyleDeclarations(input) {
+    const raw = String(input || "").trim();
+    if (!raw) {
+      return { ok: false, reason: "스타일 선언을 입력하세요." };
+    }
+
+    const styles = {};
+    const chunks = raw.split(/;|\r?\n/);
+
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (!line) continue;
+
+      const colonIdx = line.indexOf(":");
+      if (colonIdx <= 0) {
+        return { ok: false, reason: `잘못된 선언: ${line}` };
+      }
+
+      const property = line.slice(0, colonIdx).trim();
+      const value = line.slice(colonIdx + 1).trim();
+      if (!property || !value) {
+        return { ok: false, reason: `잘못된 선언: ${line}` };
+      }
+
+      styles[property] = value;
+    }
+
+    const entries = Object.entries(styles);
+    if (entries.length === 0) {
+      return { ok: false, reason: "스타일 선언을 입력하세요." };
+    }
+
+    return { ok: true, styles };
+  }
+
   function normalizeChangeFromUI() {
-    if (!lastSelected && actionType.value !== "inject_css") {
+    const isAdvancedCss = currentComposerMode === "advanced" && actionType.value === "inject_css";
+    if (!lastSelected && !isAdvancedCss) {
       alert("먼저 iframe에서 요소를 클릭해 선택하세요.");
       return null;
+    }
+
+    if (currentComposerMode === "text") {
+      const value = (actionValue.value || "").trim();
+      if (!value) { alert("새 문구를 입력하세요."); return null; }
+      return withChangeMeta({
+        selector: lastSelected.selector,
+        actions: [{ type: "set_text", value }]
+      }, lastSelected);
+    }
+
+    if (currentComposerMode === "style") {
+      const built = buildStyleObjectFromControls();
+      if (!built.ok) { alert(built.reason); return null; }
+      return withChangeMeta({
+        selector: lastSelected.selector,
+        actions: [{ type: "set_style", styles: built.styles }]
+      }, lastSelected);
+    }
+
+    if (currentComposerMode === "visibility") {
+      const type = getVisibilityMode();
+      return withChangeMeta({
+        selector: lastSelected.selector,
+        actions: [{ type }]
+      }, lastSelected);
+    }
+
+    if (currentComposerMode === "link") {
+      const href = (linkHrefValue.value || "").trim();
+      const label = (linkLabelValue.value || "").trim();
+      if (!href) { alert("이동 주소를 입력하세요."); return null; }
+      const actions = [{ type: "set_attr", name: "href", value: href }];
+      if (label) {
+        actions.push({ type: "set_attr", name: "aria-label", value: label });
+        actions.push({ type: "set_attr", name: "title", value: label });
+      }
+      return withChangeMeta({
+        selector: lastSelected.selector,
+        actions
+      }, lastSelected);
     }
 
     const type = actionType.value;
@@ -143,33 +459,39 @@
     if (type === "inject_css") {
       const css = (cssValue.value || "").trim();
       if (!css) { alert("CSS 내용을 입력하세요."); return null; }
-      return { type: "inject_css", css };
+      return withChangeMeta({ type: "inject_css", css }, lastSelected);
     }
 
     const selector = lastSelected.selector;
     if (!selector) { alert("selector가 없습니다."); return null; }
 
     if (type === "hide" || type === "show") {
-      return { selector, actions: [{ type }] };
+      return withChangeMeta({ selector, actions: [{ type }] }, lastSelected);
     }
 
     if (type === "set_text") {
       const v = (actionValue.value || "").trim();
       if (!v) { alert("텍스트를 입력하세요."); return null; }
-      return { selector, actions: [{ type: "set_text", value: v }] };
+      return withChangeMeta({ selector, actions: [{ type: "set_text", value: v }] }, lastSelected);
+    }
+
+    if (type === "set_style") {
+      const parsed = parseStyleDeclarations(styleValue.value);
+      if (!parsed.ok) { alert(parsed.reason); return null; }
+      return withChangeMeta({ selector, actions: [{ type: "set_style", styles: parsed.styles }] }, lastSelected);
     }
 
     if (type === "add_class" || type === "remove_class") {
       const v = (actionValue.value || "").trim();
       if (!v) { alert("클래스명을 입력하세요."); return null; }
-      return { selector, actions: [{ type, value: v }] };
+      return withChangeMeta({ selector, actions: [{ type, value: v }] }, lastSelected);
     }
 
     if (type === "set_attr") {
       const n = (attrName.value || "").trim();
       const v = (attrValue.value || "").trim();
       if (!n) { alert("attr name을 입력하세요."); return null; }
-      return { selector, actions: [{ type: "set_attr", name: n, value: v }] };
+      return withChangeMeta({ selector, actions: [{ type: "set_attr", name: n, value: v }] }, lastSelected);
     }
 
     alert("지원하지 않는 action입니다.");
@@ -200,17 +522,17 @@
       let code = "";
 
       if (c.type === "inject_css") {
-        meta = `#${idx} · inject_css`;
-        code = c.css;
+        meta = `#${idx} · ${escapeHtml(c.label || "고급 CSS 규칙 적용")}`;
+        code = c.detail || "고급 CSS 규칙이 추가돼요.";
       } else {
-        meta = `#${idx} · selector: ${c.selector}`;
-        code = JSON.stringify(c.actions, null, 2);
+        meta = `#${idx} · ${escapeHtml(c.label || c.element_name || "변경")}`;
+        code = c.detail || buildFriendlyDetail(c);
       }
 
       el.innerHTML = `
         <div class="changeTop">
           <div>
-            <div class="changeMeta">${escapeHtml(meta)}</div>
+            <div class="changeMeta">${meta}</div>
             <div class="mono changeCode">${escapeHtml(code)}</div>
           </div>
           <div class="changeBtns">
@@ -306,19 +628,38 @@
     log("iframe reload");
   });
 
+  intentButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setComposerMode(btn.dataset.mode || "text"));
+  });
+
   togglePickBtn.addEventListener("click", () => setPickMode(!pickMode));
   variantABtn.addEventListener("click", () => setVariant("A"));
   variantBBtn.addEventListener("click", () => setVariant("B"));
 
   actionType.addEventListener("change", () => {
     const t = actionType.value;
+    if (currentComposerMode !== "advanced") return;
+
+    textPanel.style.display = "none";
+    stylePanel.style.display = "none";
+    visibilityPanel.style.display = "none";
+    linkPanel.style.display = "none";
+
     valueRow.style.display = "none";
     attrRow.style.display = "none";
     cssRow.style.display = "none";
+    styleRow.style.display = "none";
 
-    if (t === "set_text" || t === "add_class" || t === "remove_class") valueRow.style.display = "flex";
+    if (t === "set_text" || t === "add_class" || t === "remove_class") {
+      textPanel.style.display = "block";
+      valueRow.style.display = "flex";
+      valueLabel.textContent = t === "set_text" ? "새 문구" : "값";
+      if (t === "add_class") actionValue.placeholder = "예: primary";
+      if (t === "remove_class") actionValue.placeholder = "예: primary";
+    }
     if (t === "set_attr") attrRow.style.display = "flex";
     if (t === "inject_css") cssRow.style.display = "flex";
+    if (t === "set_style") styleRow.style.display = "flex";
     if (t === "hide" || t === "show") {/* none */}
   });
 
@@ -405,12 +746,12 @@
     const data = event.data || {};
 
     if (data.type === "EDITOR_ELEMENT_HOVER") {
-      statusText.textContent = `Hover: ${data.tag || "?"} ${data.selector || ""}`;
+      statusText.textContent = `가리키는 중: ${getFriendlyElementName(data)}`;
       return;
     }
 
     if (data.type === "EDITOR_ELEMENT_SELECTED") {
-      statusText.textContent = "요소 선택됨 ✅";
+      statusText.textContent = `${getFriendlyElementName(data)} 선택됨`;
       lastSelected = data;
       renderSelected(lastSelected);
       if (lastSelected.text) actionValue.placeholder = `예: ${lastSelected.text.slice(0, 30)}...`;
@@ -435,7 +776,7 @@
   urlPrefixInput.value = getDefaultUrlPrefix();
 
   renderChangesList();
-  actionType.dispatchEvent(new Event("change"));
+  setComposerMode("text");
   setPickMode(true);
   setVariant("A");
   log("editor ready");
