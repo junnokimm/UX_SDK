@@ -3,6 +3,9 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const { ensureJsonFile, ensureJsonlFile } = require("./services/data-store");
+const { createChatRoutes } = require("./routes/chat-routes");
+const { loadEnvFromFile } = require("./services/llm/config");
 
 const {
   computeLabeledSessionSummaries,
@@ -10,6 +13,8 @@ const {
   buildInsightsInput
 } = require("./analytics/pipeline");
 const { generateInsights } = require("./insights/generator");
+
+loadEnvFromFile();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,9 +33,119 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 const DATA_DIR = path.join(__dirname, "data");
 const EVENTS_FILE = path.join(DATA_DIR, "events.jsonl");
 const EXP_FILE = path.join(DATA_DIR, "experiments.json");
+const PRODUCTS_FILE = path.join(DATA_DIR, "products.json");
+const FAQ_FILE = path.join(DATA_DIR, "faq.json");
+const POLICIES_FILE = path.join(DATA_DIR, "policies.json");
+const ORDERS_FILE = path.join(DATA_DIR, "orders.json");
+const SUPPORT_TICKETS_FILE = path.join(DATA_DIR, "support_tickets.json");
+const CHAT_SESSIONS_FILE = path.join(DATA_DIR, "chat_sessions.json");
+const CHAT_EVENTS_FILE = path.join(DATA_DIR, "chat_events.jsonl");
+const CHAT_FEEDBACK_FILE = path.join(DATA_DIR, "chat_feedback.json");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(EXP_FILE)) fs.writeFileSync(EXP_FILE, JSON.stringify({ experiments: [] }, null, 2), "utf8");
+ensureJsonFile(EXP_FILE, { experiments: [] });
+ensureJsonFile(PRODUCTS_FILE, {
+  products: [
+    {
+      id: "neo-coffee",
+      name: "네오 커피",
+      price: 12900,
+      description: "원두 500g, 산미가 낮고 고소한 블렌드",
+      specs: ["원두 500g", "로스팅: 미디엄", "산미: 낮음"],
+      options: ["원두", "분쇄"],
+      stock: 42,
+      category: "beverage",
+      tags: ["coffee", "beans", "daily"],
+    },
+    {
+      id: "luna-tea",
+      name: "루나 티",
+      price: 9900,
+      description: "티백 20개 구성, 깔끔한 허브 향",
+      specs: ["티백 20개", "카페인: 낮음", "향: 허브"],
+      options: ["기본"],
+      stock: 31,
+      category: "beverage",
+      tags: ["tea", "herbal", "calm"],
+    },
+    {
+      id: "aurora-mug",
+      name: "오로라 머그",
+      price: 15900,
+      description: "세라믹 소재 350ml 머그컵",
+      specs: ["용량: 350ml", "소재: 세라믹", "식기세척기 사용 가능"],
+      options: ["white", "mint"],
+      stock: 80,
+      category: "goods",
+      tags: ["mug", "kitchen", "daily"],
+    },
+    {
+      id: "pixel-snack",
+      name: "픽셀 스낵",
+      price: 5900,
+      description: "바삭한 식감의 스낵 8봉 세트",
+      specs: ["8봉", "맛: 솔티", "보관: 실온"],
+      options: ["기본"],
+      stock: 120,
+      category: "snack",
+      tags: ["snack", "bundle", "kids"],
+    },
+  ],
+});
+ensureJsonFile(FAQ_FILE, {
+  faq: [
+    { id: "faq-1", topic: "shipping", question: "배송은 얼마나 걸리나요?", answer: "평균 1-3영업일 소요됩니다." },
+    { id: "faq-2", topic: "refund", question: "환불은 언제 가능하나요?", answer: "수령 후 7일 이내 신청 가능합니다." },
+    { id: "faq-3", topic: "exchange", question: "교환이 가능한가요?", answer: "재고가 있으면 1회 교환 가능합니다." },
+    { id: "faq-4", topic: "payment", question: "어떤 결제 수단을 지원하나요?", answer: "카드, 계좌이체, 간편결제를 지원합니다." },
+  ],
+});
+ensureJsonFile(POLICIES_FILE, {
+  policies: [
+    { id: "pol-1", topic: "refund", title: "환불 정책", answer: "사용 흔적이 없는 상품은 수령 후 7일 이내 환불 가능합니다." },
+    { id: "pol-2", topic: "exchange", title: "교환 정책", answer: "옵션 교환은 재고 유무 확인 후 진행되며 왕복 배송비가 발생할 수 있습니다." },
+    { id: "pol-3", topic: "shipping", title: "배송 정책", answer: "도서산간 지역은 추가 배송비가 적용될 수 있습니다." },
+    { id: "pol-4", topic: "coupon", title: "쿠폰 정책", answer: "쿠폰은 일부 상품/기간에 따라 중복 적용이 제한될 수 있습니다." },
+  ],
+});
+ensureJsonFile(ORDERS_FILE, {
+  orders: [
+    {
+      id: "ORD-1001",
+      userId: "guest-123",
+      items: [{ productId: "neo-coffee", qty: 1 }],
+      status: "delivered",
+      totalAmount: 12900,
+      createdAt: Date.now() - 1000 * 60 * 60 * 24 * 3,
+      shippedAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
+      deliveredAt: Date.now() - 1000 * 60 * 60 * 24,
+      requestState: "none",
+    },
+    {
+      id: "ORD-1002",
+      userId: "guest-123",
+      items: [{ productId: "luna-tea", qty: 1 }],
+      status: "processing",
+      totalAmount: 9900,
+      createdAt: Date.now() - 1000 * 60 * 60 * 6,
+      requestState: "none",
+    },
+    {
+      id: "ORD-1003",
+      userId: "guest-999",
+      items: [{ productId: "aurora-mug", qty: 2 }],
+      status: "shipped",
+      totalAmount: 31800,
+      createdAt: Date.now() - 1000 * 60 * 60 * 12,
+      shippedAt: Date.now() - 1000 * 60 * 60 * 4,
+      requestState: "none",
+    },
+  ],
+});
+ensureJsonFile(SUPPORT_TICKETS_FILE, { tickets: [] });
+ensureJsonFile(CHAT_SESSIONS_FILE, { sessions: [] });
+ensureJsonFile(CHAT_FEEDBACK_FILE, { feedback: [] });
+ensureJsonlFile(CHAT_EVENTS_FILE);
 
 // ---------- utils ----------
 function readJson(file) {
@@ -416,6 +531,24 @@ app.get("/api/insights", async (req, res) => {
     return res.status(500).json({ ok: false, reason: String(e) });
   }
 });
+
+app.use(
+  "/api",
+  createChatRoutes({
+    files: {
+      experimentsFile: EXP_FILE,
+      eventsFile: EVENTS_FILE,
+      productsFile: PRODUCTS_FILE,
+      faqFile: FAQ_FILE,
+      policiesFile: POLICIES_FILE,
+      ordersFile: ORDERS_FILE,
+      supportTicketsFile: SUPPORT_TICKETS_FILE,
+      chatSessionsFile: CHAT_SESSIONS_FILE,
+      chatEventsFile: CHAT_EVENTS_FILE,
+      chatFeedbackFile: CHAT_FEEDBACK_FILE,
+    },
+  })
+);
 
 app.listen(PORT, () => {
   console.log(`✅ AB Sample running: http://localhost:${PORT}`);
