@@ -29,6 +29,7 @@
   const helpButtons = Array.from(document.querySelectorAll(".helpBtn"));
   const copilotExperimentKey = document.getElementById("copilotExperimentKey");
   const copilotDraftStatus = document.getElementById("copilotDraftStatus");
+  const saveDraftBtn = document.getElementById("saveDraftBtn");
   const openDraftInEditorBtn = document.getElementById("openDraftInEditorBtn");
 
   const DRAFT_STORAGE_KEY = "uxsdk.analyticsCopilotDraft";
@@ -103,6 +104,17 @@
     return j.experiment;
   }
 
+  async function saveDraftExperiment(payload) {
+    const r = await fetch("/api/experiments/draft", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j?.ok) throw new Error(j?.reason || "draft save failed");
+    return j.experiment;
+  }
+
   async function deleteExp(id) {
     const r = await fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" });
     const j = await r.json();
@@ -156,10 +168,29 @@
     state.latestDraft = payload;
     localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
     openDraftInEditorBtn.disabled = false;
+    saveDraftBtn.disabled = false;
     const changeCount = payload.changesB.length;
     copilotDraftStatus.textContent = draft
       ? `초안 준비됨 - ${draft.key || "draft"} / 변경 ${changeCount}개`
       : `변경 ${changeCount}개 준비됨`;
+  }
+
+  function stageExperimentForEditor(exp) {
+    const payload = {
+      draft: {
+        key: exp.key,
+        target_page: exp.url_prefix,
+        hypothesis: exp.hypothesis || "",
+      },
+      changesB: Array.isArray(exp?.variants?.B) ? exp.variants.B : [],
+      selectedExperimentKey: exp.parent_key || exp.key || null,
+      savedAt: Date.now(),
+    };
+    state.latestDraft = payload;
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    openDraftInEditorBtn.disabled = false;
+    saveDraftBtn.disabled = exp.status === "draft";
+    copilotDraftStatus.textContent = `${exp.status === "draft" ? "저장된 draft" : "실험"} 준비됨 - ${exp.key}`;
   }
 
   function initCopilot() {
@@ -180,6 +211,30 @@
       },
     });
     updateCopilotExperimentUI();
+  }
+
+  async function persistLatestDraft() {
+    if (!state.latestDraft) return;
+    const draft = state.latestDraft.draft || {};
+    const changesB = Array.isArray(state.latestDraft.changesB) ? state.latestDraft.changesB : [];
+    const payload = {
+      site_id: SITE_ID,
+      key: draft.key || state.selectedExperimentKey || `exp_copilot_${Date.now()}`,
+      url_prefix: draft.target_page || "/",
+      traffic: { A: 50, B: 50 },
+      goals: [draft.primary_goal || "checkout_complete"],
+      variants: {
+        A: [],
+        B: changesB,
+      },
+      hypothesis: draft.hypothesis || "analytics copilot draft",
+      source: "analytics_copilot",
+    };
+
+    const saved = await saveDraftExperiment(payload);
+    stageExperimentForEditor(saved);
+    await render();
+    return saved;
   }
 
   function renderTop(list) {
@@ -355,7 +410,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   }
 
   function badge(status) {
-    const cls = status === "running" ? "running" : "paused";
+    const cls = status === "running" ? "running" : status === "draft" ? "draft" : "paused";
     return `<span class="badge ${cls}">${status}</span>`;
   }
 
@@ -367,7 +422,12 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
 
     const btnToggle = status === "running"
       ? `<button class="btn danger" data-act="pause" data-id="${exp.id}">Pause</button>`
-      : `<button class="btn good" data-act="run" data-id="${exp.id}">Run</button>`;
+      : status === "draft"
+        ? `<button class="btn" data-act="edit-draft" data-id="${exp.id}" data-key="${key}">Edit Draft</button>`
+        : `<button class="btn good" data-act="run" data-id="${exp.id}">Run</button>`;
+    const metricsBtn = status === "draft"
+      ? `<button class="btn" data-act="edit-draft" data-id="${exp.id}" data-key="${key}">Open In Editor</button>`
+      : `<button class="btn" data-act="metrics" data-key="${key}">Metrics</button>`;
 
     return `
       <tr>
@@ -378,7 +438,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
         <td>${fmtDate(exp.updated_at)}</td>
         <td>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn" data-act="metrics" data-key="${key}">Metrics</button>
+            ${metricsBtn}
             ${btnToggle}
             <a class="btn" href="/editor" target="_blank" rel="noopener">Open Editor</a>
             <button class="btn danger" data-act="del" data-id="${exp.id}">Delete</button>
@@ -420,6 +480,11 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
     try {
       if (act === "metrics") {
         await showMetrics(btn.dataset.key);
+      } else if (act === "edit-draft") {
+        const exp = state.experiments.find((item) => item.id === btn.dataset.id);
+        if (!exp) throw new Error("draft not found");
+        stageExperimentForEditor(exp);
+        window.open("/editor?from=copilot", "_blank", "noopener");
       } else if (act === "pause") {
         await setStatus(btn.dataset.id, "paused");
         await render();
@@ -453,6 +518,16 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   });
 
   refreshBtn.addEventListener("click", () => render());
+  saveDraftBtn.addEventListener("click", async () => {
+    try {
+      saveDraftBtn.disabled = true;
+      const saved = await persistLatestDraft();
+      copilotDraftStatus.textContent = `draft 저장 완료 - ${saved.key}`;
+    } catch (err) {
+      alert(String(err));
+      saveDraftBtn.disabled = !state.latestDraft;
+    }
+  });
   openDraftInEditorBtn.addEventListener("click", () => {
     if (!state.latestDraft) return;
     window.open("/editor?from=copilot", "_blank", "noopener");

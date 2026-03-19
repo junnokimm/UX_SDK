@@ -30,6 +30,44 @@
       "updated_at": 1773208180626,
       "published_at": 1773039061133,
       "version": 1
+    },
+    {
+      "id": "exp_6513e516",
+      "site_id": "ab-sample",
+      "key": "exp_main_cta_v1_chat_1773912520557",
+      "parent_key": null,
+      "url_prefix": "/checkout",
+      "traffic": {
+        "A": 50,
+        "B": 50
+      },
+      "goals": [
+        "checkout_complete"
+      ],
+      "variants": {
+        "A": [],
+        "B": [
+          {
+            "selector": "[data-track-id='pay_btn']",
+            "actions": [
+              {
+                "type": "set_text",
+                "value": "지금 주문하고 내일 받아보세요"
+              }
+            ]
+          },
+          {
+            "type": "inject_css",
+            "css": "[data-track-id='pay_btn']{font-weight:800;box-shadow:0 0 0 3px rgba(106,169,255,0.24);}"
+          }
+        ]
+      },
+      "status": "draft",
+      "hypothesis": "If we improve clarity on [data-track-id='pay_btn'], then conversion should improve because current issue cluster is funnel_drop.",
+      "source": "analytics_copilot",
+      "updated_at": 1773912520591,
+      "published_at": null,
+      "version": 2
     }
   ]
 }
