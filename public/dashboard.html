@@ -46,6 +46,38 @@
       </div>
     </section>
 
+    <section class="card">
+      <div class="cardHead">
+        <h2>Analytics Copilot</h2>
+        <div class="muted">실험 해석 -> Variant B 초안 생성 -> 에디터로 넘기기</div>
+      </div>
+
+      <div id="analyticsCopilotRoot" class="copilotCard">
+        <div class="chatMetaRow">
+          <div class="muted">선택된 실험: <span class="mono" id="copilotExperimentKey">아직 선택 안 됨</span></div>
+          <div class="muted" id="copilotDraftStatus">초안 없음</div>
+        </div>
+
+        <div class="quickPillRow">
+          <button class="btn" type="button" data-q="지금 가장 먼저 볼 실험 문제를 요약해줘">문제 요약</button>
+          <button class="btn" type="button" data-q="선택된 실험 기준으로 Variant B 개선안을 제안해줘">실험 제안</button>
+          <button class="btn" type="button" data-q="전환이 낮은 이유를 설명하고 검증 방법까지 알려줘">원인 + 검증</button>
+        </div>
+
+        <div class="chatMessages"></div>
+
+        <div class="chatComposer">
+          <textarea class="chatInput" rows="3" placeholder="예: 지금 선택한 실험 기준으로 CTA 개선 초안을 만들어줘"></textarea>
+          <button class="btn primary chatSendBtn" type="button">보내기</button>
+        </div>
+
+        <div class="chatMetaRow">
+          <div class="muted chatStatus">준비 중…</div>
+          <button class="btn" type="button" id="openDraftInEditorBtn" disabled>초안을 에디터에서 열기</button>
+        </div>
+      </div>
+    </section>
+
     <section class="card" id="metricsCard" style="display:none;">
       <div class="cardHead">
         <h2>Metrics</h2>
@@ -260,6 +292,7 @@
     </section>
   </main>
 
+  <script src="/analytics-chat.js"></script>
   <script src="/dashboard.js"></script>
 </body>
 </html>

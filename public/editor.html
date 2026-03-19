@@ -39,6 +39,34 @@
 
   <main class="layout">
     <section class="panel">
+      <h2>Analytics Copilot</h2>
+      <div class="card">
+        <div id="editorCopilotRoot" class="copilotCard">
+          <div class="chatMetaRow">
+            <div class="muted">현재 실험: <span class="mono" id="editorCopilotExpKey">자동 선택</span></div>
+            <div class="muted" id="editorImportedState">아직 가져온 초안 없음</div>
+          </div>
+
+          <div class="quickPillRow">
+            <button class="btn" type="button" data-q="지금 선택한 요소 기준으로 Variant B 아이디어를 제안해줘">선택 요소 제안</button>
+            <button class="btn" type="button" data-q="현재 페이지 전환을 높이기 위한 실험 초안을 만들어줘">페이지 개선안</button>
+            <button class="btn" type="button" data-q="현재 Variant B 변경을 더 좋게 다듬을 방법을 알려줘">현재 변경 개선</button>
+          </div>
+
+          <div class="chatMessages"></div>
+
+          <div class="chatComposer">
+            <textarea class="chatInput" rows="3" placeholder="예: 지금 선택한 버튼을 더 잘 눌리게 만들 실험 초안을 제안해줘"></textarea>
+            <button class="btn primary chatSendBtn" type="button">보내기</button>
+          </div>
+
+          <div class="chatMetaRow">
+            <div class="muted chatStatus">준비 중…</div>
+            <button class="btn" type="button" id="applyImportedDraftBtn" disabled>가져온 초안 다시 적용</button>
+          </div>
+        </div>
+      </div>
+
       <h2>현재 선택</h2>
       <div class="card">
         <div class="row"><div class="k">요소 이름</div><div class="v" id="elementNameText">아직 선택하지 않았어요</div></div>
@@ -208,6 +236,7 @@ padding: 16px 24px;'></textarea>
     </section>
   </main>
 
+  <script src="/analytics-chat.js"></script>
   <script src="/editor.js"></script>
 </body>
 </html>

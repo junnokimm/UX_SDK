@@ -139,6 +139,43 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .compactList{margin:8px 0 0; padding-left:18px; color:#dbe7ff; line-height:1.5; font-size:13px;}
 .compactList li+li{margin-top:4px;}
 
+.copilotCard{display:flex; flex-direction:column; gap:12px;}
+.chatMetaRow{display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;}
+.quickPillRow{display:flex; gap:8px; flex-wrap:wrap;}
+.chatMessages{
+  min-height:220px;
+  max-height:360px;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:rgba(0,0,0,0.18);
+}
+.chatMsg{
+  max-width:min(85%, 720px);
+  padding:10px 12px;
+  border-radius:14px;
+  line-height:1.5;
+  font-size:13px;
+  white-space:pre-wrap;
+}
+.chatMsg.user{
+  align-self:flex-end;
+  background:rgba(106,169,255,0.16);
+  border:1px solid rgba(106,169,255,0.35);
+}
+.chatMsg.assistant{
+  align-self:flex-start;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--line);
+  color:#dbe7ff;
+}
+.chatComposer{display:grid; grid-template-columns:1fr auto; gap:10px; align-items:end;}
+.chatInput{min-height:76px;}
+
 @media (max-width: 920px){
   .grid{grid-template-columns:repeat(2, 1fr);}
   .insightsGrid{grid-template-columns:1fr;}
@@ -149,4 +186,5 @@ tr:hover td{background:rgba(255,255,255,0.02);}
   .split{grid-template-columns:1fr;}
   .helpPopover{left:auto; right:0;}
   .helpPopover::before{left:auto; right:16px;}
+  .chatComposer{grid-template-columns:1fr;}
 }

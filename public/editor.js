@@ -67,12 +67,19 @@
   const exportJsonBtn = document.getElementById("exportJsonBtn");
   const copyJsonBtn = document.getElementById("copyJsonBtn");
   const jsonBox = document.getElementById("jsonBox");
+  const editorCopilotExpKey = document.getElementById("editorCopilotExpKey");
+  const editorImportedState = document.getElementById("editorImportedState");
+  const applyImportedDraftBtn = document.getElementById("applyImportedDraftBtn");
+
+  const DRAFT_STORAGE_KEY = "uxsdk.analyticsCopilotDraft";
 
   let pickMode = true;
   let currentVariant = "A";
   let currentComposerMode = "text";
   let lastSelected = null;
   let changesB = [];
+  let latestImportedDraft = null;
+  let copilot = null;
 
   function log(msg) {
     const t = new Date().toLocaleTimeString();
@@ -546,6 +553,99 @@
     });
   }
 
+  function mergeImportedChange(change) {
+    if (!change || typeof change !== "object") return null;
+    if (change.type === "inject_css") {
+      return withChangeMeta(change, lastSelected);
+    }
+    if (!change.selector || !Array.isArray(change.actions)) return null;
+    const info = {
+      selector: change.selector,
+      tag: change.tag || null,
+      track_id: change.track_id || null,
+      text: change.text || change.element_name || "",
+      rect: change.rect || null,
+      page: change.page || null,
+    };
+    const merged = withChangeMeta(change, info);
+    if (change.element_name) merged.element_name = change.element_name;
+    if (change.label) merged.label = change.label;
+    if (change.detail) merged.detail = change.detail;
+    return merged;
+  }
+
+  function setTargetByPath(pathname) {
+    if (!pathname) return;
+    if (pathname.startsWith("/checkout")) targetSelect.value = "/checkout?product=neo-coffee";
+    else if (pathname.startsWith("/detail")) targetSelect.value = "/detail?product=neo-coffee";
+    else targetSelect.value = "/";
+    frame.src = targetSelect.value;
+    urlPrefixInput.value = pathname === "/" ? "/" : pathname;
+  }
+
+  function applyDraftPayload(payload, options) {
+    const draft = payload?.draft || null;
+    const imported = Array.isArray(payload?.changesB) ? payload.changesB.map(mergeImportedChange).filter(Boolean) : [];
+    if (draft?.target_page) setTargetByPath(draft.target_page);
+    if (draft?.key) expKeyInput.value = draft.key;
+    if (draft?.target_page) urlPrefixInput.value = draft.target_page;
+    if (imported.length > 0) {
+      changesB = imported;
+      renderChangesList();
+      jsonBox.value = JSON.stringify({ variantB: changesB, source: "analytics_copilot" }, null, 2);
+      setVariant("B");
+      applyPreviewNow();
+    }
+    latestImportedDraft = payload || null;
+    applyImportedDraftBtn.disabled = !latestImportedDraft;
+    editorImportedState.textContent = draft
+      ? `초안 가져옴 - ${draft.key || "draft"} / 변경 ${imported.length}개`
+      : imported.length > 0
+        ? `변경 ${imported.length}개 가져옴`
+        : "가져온 변경 없음";
+    log(`copilot draft imported (${imported.length} changes)`);
+    if (!options?.keepStorage) {
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  }
+
+  function loadPendingDraftFromStorage() {
+    try {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const payload = JSON.parse(raw);
+      applyDraftPayload(payload);
+    } catch (e) {
+      log(`copilot draft load failed: ${String(e)}`);
+    }
+  }
+
+  function initCopilot() {
+    if (!window.AnalyticsChat) return;
+    copilot = window.AnalyticsChat.init({
+      rootId: "editorCopilotRoot",
+      page: "editor",
+      getContext() {
+        return {
+          page: "editor",
+          selectedElement: lastSelected,
+          selectedExperimentKey: (expKeyInput.value || "").trim() || null,
+        };
+      },
+      onExperimentDraft(draft) {
+        latestImportedDraft = {
+          draft,
+          changesB: Array.isArray(draft?.variant_b_changes) ? draft.variant_b_changes : [],
+        };
+        applyImportedDraftBtn.disabled = false;
+        editorImportedState.textContent = `새 초안 도착 - ${draft?.key || "draft"}`;
+      },
+      onEditorChanges(changes, draft) {
+        applyDraftPayload({ draft, changesB: changes }, { keepStorage: true });
+      },
+    });
+  }
+
   function applyPreviewNow() {
     if (currentVariant !== "B") setVariant("B");
     postToFrame("EDITOR_PREVIEW_SET_VARIANT", { variant: "B", changes: changesB });
@@ -563,6 +663,14 @@
     const path = new URL(targetSelect.value, location.origin).pathname;
     // query 제외하고 prefix만
     return path === "/" ? "/" : path;
+  }
+
+  function updateEditorCopilotMeta() {
+    editorCopilotExpKey.textContent = (expKeyInput.value || "").trim() || getDefaultExpKey();
+    if (copilot) {
+      copilot.setSelectedExperimentKey((expKeyInput.value || "").trim() || null);
+      copilot.setSelectedElement(lastSelected);
+    }
   }
 
   async function realApplyToServer() {
@@ -620,8 +728,11 @@
     // 기본값 자동 채우기
     expKeyInput.value = getDefaultExpKey();
     urlPrefixInput.value = getDefaultUrlPrefix();
+    updateEditorCopilotMeta();
     log(`navigate iframe -> ${targetSelect.value}`);
   });
+
+  expKeyInput.addEventListener("input", () => updateEditorCopilotMeta());
 
   reloadBtn.addEventListener("click", () => {
     frame.contentWindow.location.reload();
@@ -734,6 +845,11 @@
     }
   });
 
+  applyImportedDraftBtn.addEventListener("click", () => {
+    if (!latestImportedDraft) return;
+    applyDraftPayload(latestImportedDraft, { keepStorage: true });
+  });
+
   // iframe load hook
   frame.addEventListener("load", () => {
     log("iframe loaded");
@@ -754,6 +870,7 @@
       statusText.textContent = `${getFriendlyElementName(data)} 선택됨`;
       lastSelected = data;
       renderSelected(lastSelected);
+      updateEditorCopilotMeta();
       if (lastSelected.text) actionValue.placeholder = `예: ${lastSelected.text.slice(0, 30)}...`;
       log(`selected -> ${data.selector}`);
       return;
@@ -776,8 +893,11 @@
   urlPrefixInput.value = getDefaultUrlPrefix();
 
   renderChangesList();
+  initCopilot();
   setComposerMode("text");
   setPickMode(true);
   setVariant("A");
+  updateEditorCopilotMeta();
+  loadPendingDraftFromStorage();
   log("editor ready");
 })();

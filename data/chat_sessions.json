@@ -1,3 +1,14 @@
 {
-  "sessions": []
+  "sessions": [
+    {
+      "sessionId": "verify_phase2",
+      "agent": "analytics_copilot",
+      "userId": "guest",
+      "startedAt": 1773909453517,
+      "updatedAt": 1773909453576,
+      "messageCount": 2,
+      "lastPage": "dashboard",
+      "lastIntent": "experiment"
+    }
+  ]
 }

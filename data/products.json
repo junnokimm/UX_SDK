@@ -1,0 +1,90 @@
+{
+  "products": [
+    {
+      "id": "neo-coffee",
+      "name": "네오 커피",
+      "price": 12900,
+      "description": "원두 500g, 산미가 낮고 고소한 블렌드",
+      "specs": [
+        "원두 500g",
+        "로스팅: 미디엄",
+        "산미: 낮음"
+      ],
+      "options": [
+        "원두",
+        "분쇄"
+      ],
+      "stock": 42,
+      "category": "beverage",
+      "tags": [
+        "coffee",
+        "beans",
+        "daily"
+      ]
+    },
+    {
+      "id": "luna-tea",
+      "name": "루나 티",
+      "price": 9900,
+      "description": "티백 20개 구성, 깔끔한 허브 향",
+      "specs": [
+        "티백 20개",
+        "카페인: 낮음",
+        "향: 허브"
+      ],
+      "options": [
+        "기본"
+      ],
+      "stock": 31,
+      "category": "beverage",
+      "tags": [
+        "tea",
+        "herbal",
+        "calm"
+      ]
+    },
+    {
+      "id": "aurora-mug",
+      "name": "오로라 머그",
+      "price": 15900,
+      "description": "세라믹 소재 350ml 머그컵",
+      "specs": [
+        "용량: 350ml",
+        "소재: 세라믹",
+        "식기세척기 사용 가능"
+      ],
+      "options": [
+        "white",
+        "mint"
+      ],
+      "stock": 80,
+      "category": "goods",
+      "tags": [
+        "mug",
+        "kitchen",
+        "daily"
+      ]
+    },
+    {
+      "id": "pixel-snack",
+      "name": "픽셀 스낵",
+      "price": 5900,
+      "description": "바삭한 식감의 스낵 8봉 세트",
+      "specs": [
+        "8봉",
+        "맛: 솔티",
+        "보관: 실온"
+      ],
+      "options": [
+        "기본"
+      ],
+      "stock": 120,
+      "category": "snack",
+      "tags": [
+        "snack",
+        "bundle",
+        "kids"
+      ]
+    }
+  ]
+}

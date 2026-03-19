@@ -1,0 +1,28 @@
+{
+  "faq": [
+    {
+      "id": "faq-1",
+      "topic": "shipping",
+      "question": "배송은 얼마나 걸리나요?",
+      "answer": "평균 1-3영업일 소요됩니다."
+    },
+    {
+      "id": "faq-2",
+      "topic": "refund",
+      "question": "환불은 언제 가능하나요?",
+      "answer": "수령 후 7일 이내 신청 가능합니다."
+    },
+    {
+      "id": "faq-3",
+      "topic": "exchange",
+      "question": "교환이 가능한가요?",
+      "answer": "재고가 있으면 1회 교환 가능합니다."
+    },
+    {
+      "id": "faq-4",
+      "topic": "payment",
+      "question": "어떤 결제 수단을 지원하나요?",
+      "answer": "카드, 계좌이체, 간편결제를 지원합니다."
+    }
+  ]
+}

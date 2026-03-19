@@ -27,6 +27,17 @@
   const sessionsBody = document.getElementById("sessionsBody");
   const insightsList = document.getElementById("insightsList");
   const helpButtons = Array.from(document.querySelectorAll(".helpBtn"));
+  const copilotExperimentKey = document.getElementById("copilotExperimentKey");
+  const copilotDraftStatus = document.getElementById("copilotDraftStatus");
+  const openDraftInEditorBtn = document.getElementById("openDraftInEditorBtn");
+
+  const DRAFT_STORAGE_KEY = "uxsdk.analyticsCopilotDraft";
+  const state = {
+    experiments: [],
+    selectedExperimentKey: null,
+    latestDraft: null,
+    copilot: null,
+  };
 
   function fmtPct(x) {
     if (typeof x !== "number" || !isFinite(x)) return "—";
@@ -121,6 +132,54 @@
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "insights failed");
     return j;
+  }
+
+  function getExperimentByKey(key) {
+    return state.experiments.find((exp) => exp.key === key) || null;
+  }
+
+  function updateCopilotExperimentUI() {
+    copilotExperimentKey.textContent = state.selectedExperimentKey || "아직 선택 안 됨";
+    if (state.copilot) {
+      state.copilot.setSelectedExperimentKey(state.selectedExperimentKey);
+    }
+  }
+
+  function stageDraftForEditor(draft, changes) {
+    if (!draft && !Array.isArray(changes)) return;
+    const payload = {
+      draft: draft || null,
+      changesB: Array.isArray(changes) ? changes : [],
+      selectedExperimentKey: state.selectedExperimentKey,
+      savedAt: Date.now(),
+    };
+    state.latestDraft = payload;
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    openDraftInEditorBtn.disabled = false;
+    const changeCount = payload.changesB.length;
+    copilotDraftStatus.textContent = draft
+      ? `초안 준비됨 - ${draft.key || "draft"} / 변경 ${changeCount}개`
+      : `변경 ${changeCount}개 준비됨`;
+  }
+
+  function initCopilot() {
+    if (!window.AnalyticsChat) return;
+    state.copilot = window.AnalyticsChat.init({
+      rootId: "analyticsCopilotRoot",
+      page: "dashboard",
+      getContext() {
+        return {
+          page: "dashboard",
+        };
+      },
+      onExperimentDraft(draft) {
+        stageDraftForEditor(draft, draft?.variant_b_changes || []);
+      },
+      onEditorChanges(changes, draft) {
+        stageDraftForEditor(draft, changes);
+      },
+    });
+    updateCopilotExperimentUI();
   }
 
   function renderTop(list) {
@@ -267,6 +326,8 @@
   async function showMetrics(key) {
     metricsCard.style.display = "block";
     metricKeyEl.textContent = key;
+    state.selectedExperimentKey = key;
+    updateCopilotExperimentUI();
 
     // loading
     cvrA.textContent = cvrB.textContent = "…";
@@ -335,6 +396,12 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
       fetchInsights()
     ]);
 
+    state.experiments = exps;
+    if (!state.selectedExperimentKey && exps.length > 0) {
+      state.selectedExperimentKey = exps[0].key || null;
+      updateCopilotExperimentUI();
+    }
+
     expTbody.innerHTML = exps.length ? exps.map(rowHtml).join("") : `
       <tr><td colspan="6" class="muted">실험이 없습니다. /editor에서 Real 적용을 눌러 생성하세요.</td></tr>
     `;
@@ -386,6 +453,12 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   });
 
   refreshBtn.addEventListener("click", () => render());
+  openDraftInEditorBtn.addEventListener("click", () => {
+    if (!state.latestDraft) return;
+    window.open("/editor?from=copilot", "_blank", "noopener");
+  });
+
+  initCopilot();
 
   render().catch((e) => alert(String(e)));
 })();
