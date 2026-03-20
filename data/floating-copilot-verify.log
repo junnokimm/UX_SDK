@@ -1,0 +1,7 @@
+✅ AB Sample running: http://localhost:3012
+📦 collecting events to: C:\university\UX_SDK\data\events.jsonl
+🧪 experiments file: C:\university\UX_SDK\data\experiments.json
+📊 dashboard: http://localhost:3012/dashboard
+🧩 sessions api: http://localhost:3012/api/sessions
+🏷️  labels summary: http://localhost:3012/api/labels/summary
+💡 insights: http://localhost:3012/api/insights
