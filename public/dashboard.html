@@ -17,7 +17,11 @@
     </div>
 
     <div class="actions">
-      <a class="btn" href="/editor">Visual Editor</a>
+      <label class="muted" for="siteSelect">Site</label>
+      <select id="siteSelect" class="btn" aria-label="Dashboard site selector">
+        <option value="">loading…</option>
+      </select>
+      <a class="btn" id="topEditorLink" href="/editor">Visual Editor</a>
       <button class="btn" id="refreshBtn">새로고침</button>
     </div>
   </header>
@@ -26,7 +30,7 @@
     <section class="card">
       <div class="cardHead">
         <h2>Experiments</h2>
-        <div class="muted">site_id: <span class="mono">ab-sample</span></div>
+        <div class="muted">site_id: <span class="mono" id="siteIdText">legend-ecommerce</span></div>
       </div>
 
       <div class="tableWrap">
@@ -249,12 +253,10 @@
         <h2>Quick Test</h2>
         <div class="muted">SDK가 실제 적용되는지 바로 확인</div>
       </div>
-      <div class="btnRow">
-        <a class="btn primary" href="/" target="_blank" rel="noopener">Open Main</a>
-        <a class="btn primary" href="/detail?product=neo-coffee" target="_blank" rel="noopener">Open Detail</a>
-        <a class="btn primary" href="/checkout?product=neo-coffee" target="_blank" rel="noopener">Open Checkout</a>
+      <div class="btnRow" id="quickTestLinks">
+        <span class="muted">loading…</span>
       </div>
-      <div class="muted" style="margin-top:10px;">
+      <div class="muted" id="quickTestHint" style="margin-top:10px;">
         방문할 때마다 유저가 A/B로 고정됩니다(anon_user_id 기반). 다른 유저처럼 보려면 시크릿 창 또는 localStorage 삭제.
       </div>
     </section>

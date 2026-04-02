@@ -1,0 +1,191 @@
+{
+  "sites": [
+    {
+      "site_id": "legend-ecommerce",
+      "name": "Legend Ecommerce",
+      "preview_base_url": "http://127.0.0.1:8080",
+      "api_base_url": "http://127.0.0.1:3000",
+      "target_generation": {
+        "mode": "hybrid",
+        "source": "nav_scan",
+        "seed_paths": [
+          "/",
+          "/shop",
+          "/cart",
+          "/checkout"
+        ],
+        "include_patterns": [
+          "/",
+          "/shop",
+          "/product",
+          "/cart",
+          "/checkout",
+          "/collection"
+        ],
+        "exclude_patterns": [
+          "/login",
+          "/join",
+          "/mypage",
+          "/board"
+        ],
+        "max_targets": 6,
+        "max_pages_to_scan": 6,
+        "refresh_ttl_sec": 300
+      },
+      "preview_targets": [
+        {
+          "id": "home",
+          "label": "홈",
+          "path": "/",
+          "url_prefix": "/",
+          "default": true,
+          "experiment_key": "exp_home_cta_v1"
+        },
+        {
+          "id": "collection",
+          "label": "컬렉션",
+          "path": "/collection",
+          "url_prefix": "/collection",
+          "experiment_key": "exp_collection_cta_v1"
+        },
+        {
+          "id": "checkout",
+          "label": "체크아웃",
+          "path": "/checkout",
+          "url_prefix": "/checkout",
+          "experiment_key": "exp_checkout_cta_v1"
+        }
+      ],
+      "inferred_preview_targets": [
+        {
+          "id": "home",
+          "label": "홈",
+          "path": "/",
+          "url_prefix": "/",
+          "default": true,
+          "experiment_key": "exp_home_cta_v1",
+          "origin": "inferred",
+          "confidence": 100,
+          "last_discovered_at": 1774953498240
+        },
+        {
+          "id": "checkout",
+          "label": "체크아웃",
+          "path": "/checkout",
+          "url_prefix": "/checkout",
+          "default": false,
+          "experiment_key": "exp_checkout_cta_v1",
+          "origin": "inferred",
+          "confidence": 95,
+          "last_discovered_at": 1774953498240
+        },
+        {
+          "id": "cart",
+          "label": "장바구니",
+          "path": "/cart",
+          "url_prefix": "/cart",
+          "default": false,
+          "experiment_key": "exp_cart_cta_v1",
+          "origin": "inferred",
+          "confidence": 92,
+          "last_discovered_at": 1774953498240
+        },
+        {
+          "id": "shop",
+          "label": "샵",
+          "path": "/shop",
+          "url_prefix": "/shop",
+          "default": false,
+          "experiment_key": "exp_shop_cta_v1",
+          "origin": "inferred",
+          "confidence": 88,
+          "last_discovered_at": 1774953498240
+        }
+      ],
+      "inferred_targets_updated_at": 1774953498244
+    },
+    {
+      "site_id": "ab-sample",
+      "name": "SDK Sample",
+      "preview_base_url": "http://127.0.0.1:3001",
+      "api_base_url": "http://127.0.0.1:3001",
+      "target_generation": {
+        "mode": "hybrid",
+        "source": "nav_scan",
+        "seed_paths": [
+          "/",
+          "/detail?product=neo-coffee",
+          "/checkout?product=neo-coffee"
+        ],
+        "include_patterns": [
+          "/",
+          "/detail",
+          "/checkout"
+        ],
+        "max_targets": 5,
+        "max_pages_to_scan": 4,
+        "refresh_ttl_sec": 300
+      },
+      "preview_targets": [
+        {
+          "id": "main",
+          "label": "메인",
+          "path": "/",
+          "url_prefix": "/",
+          "default": true,
+          "experiment_key": "exp_main_cta_v1"
+        },
+        {
+          "id": "detail",
+          "label": "상세",
+          "path": "/detail?product=neo-coffee",
+          "url_prefix": "/detail",
+          "experiment_key": "exp_detail_cta_v1"
+        },
+        {
+          "id": "checkout",
+          "label": "체크아웃",
+          "path": "/checkout?product=neo-coffee",
+          "url_prefix": "/checkout",
+          "experiment_key": "exp_checkout_cta_v1"
+        }
+      ],
+      "inferred_preview_targets": [
+        {
+          "id": "home",
+          "label": "홈",
+          "path": "/",
+          "url_prefix": "/",
+          "default": true,
+          "experiment_key": "exp_home_cta_v1",
+          "origin": "inferred",
+          "confidence": 100,
+          "last_discovered_at": 1774953499194
+        },
+        {
+          "id": "checkout",
+          "label": "체크아웃",
+          "path": "/checkout",
+          "url_prefix": "/checkout",
+          "default": false,
+          "experiment_key": "exp_checkout_cta_v1",
+          "origin": "inferred",
+          "confidence": 95,
+          "last_discovered_at": 1774953499194
+        },
+        {
+          "id": "detail",
+          "label": "상세",
+          "path": "/detail",
+          "url_prefix": "/detail",
+          "default": false,
+          "experiment_key": "exp_detail_cta_v1",
+          "origin": "inferred",
+          "confidence": 40,
+          "last_discovered_at": 1774953499194
+        }
+      ],
+      "inferred_targets_updated_at": 1774953499355
+    }
+  ]
+}

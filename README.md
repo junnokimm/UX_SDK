@@ -13,6 +13,7 @@
 - `public/sdk.js`: 브라우저 SDK(페이지뷰/클릭/체류시간) + A/B config 적용
 - `public/dashboard.*`: 실험 관리 + A/B metrics 대시보드(MVP)
 - `public/editor.*`: Visual Editor(MVP+ Real 적용)
+- `data/sites.json`: site별 dashboard/editor preview 설정 레지스트리
 - `analytics/*`: 원시 이벤트 -> 세션화 -> 요약 -> 규칙 라벨링 파이프라인
 - `insights/*`: 인사이트 I/O 계약 + provider 추상화 + fallback 생성기
 - `docs/*`: 라벨 규칙, LLM 인사이트 I/O 스펙
@@ -26,9 +27,17 @@ npm install
 npm run dev
 ```
 
-- 서버: `http://localhost:3000`
-- 대시보드: `http://localhost:3000/dashboard`
-- 에디터: `http://localhost:3000/editor`
+- 서버: `http://localhost:3001`
+- 대시보드: `http://localhost:3001/dashboard`
+- 에디터: `http://localhost:3001/editor`
+
+### site별 dashboard / editor
+
+- Ecommerce dashboard: `http://localhost:3001/dashboard?site_id=legend-ecommerce`
+- Ecommerce editor: `http://localhost:3001/editor?site_id=legend-ecommerce`
+- Sample dashboard: `http://localhost:3001/dashboard?site_id=ab-sample`
+
+site별 preview 대상과 editor target 목록은 `data/sites.json`에서 관리합니다.
 
 ## API 빠른 확인
 
@@ -40,6 +49,7 @@ npm run dev
 
 - 라벨 규칙 스펙: `docs/label-rules.md`
 - 인사이트 I/O 계약: `docs/insights-contract.md`
+- site registry 운영 가이드: `docs/site-registry.md`
 
 ## 테스트(회귀 체크)
 
@@ -83,5 +93,5 @@ npm run load:k6
 예시:
 
 ```bash
-curl "http://localhost:3000/api/insights?site_id=ab-sample&reps=3"
+curl "http://localhost:3001/api/insights?site_id=ab-sample&reps=3"
 ```

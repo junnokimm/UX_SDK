@@ -3,6 +3,7 @@
   const frame = document.getElementById("previewFrame");
   const targetSelect = document.getElementById("targetSelect");
   const reloadBtn = document.getElementById("reloadBtn");
+  const openDashboardLink = document.getElementById("openDashboardLink");
   const togglePickBtn = document.getElementById("togglePickBtn");
 
   const variantABtn = document.getElementById("variantABtn");
@@ -74,10 +75,34 @@
   const editorCopilotToggleBtn = document.getElementById("editorCopilotToggleBtn");
 
   const DRAFT_STORAGE_KEY = "uxsdk.analyticsCopilotDraft";
+  const DASHBOARD_SITE_STORAGE_KEY = "uxsdk.dashboard.siteId";
+  const DEFAULT_SITE_ID = "legend-ecommerce";
+
+  function resolveSiteId() {
+    const params = new URLSearchParams(location.search);
+    const querySiteId = (params.get("site_id") || "").trim();
+    const storedSiteId = (localStorage.getItem(DASHBOARD_SITE_STORAGE_KEY) || "").trim();
+    return querySiteId || storedSiteId || DEFAULT_SITE_ID;
+  }
+
+  const currentSiteId = resolveSiteId();
+  localStorage.setItem(DASHBOARD_SITE_STORAGE_KEY, currentSiteId);
+
+  function getDashboardUrl() {
+    const url = new URL("/dashboard", location.origin);
+    url.searchParams.set("site_id", currentSiteId);
+    return `${url.pathname}${url.search}`;
+  }
+
+  if (openDashboardLink) {
+    openDashboardLink.href = getDashboardUrl();
+  }
 
   let pickMode = true;
   let currentVariant = "A";
   let currentComposerMode = "text";
+  let currentSiteConfig = null;
+  let currentTarget = null;
   let lastSelected = null;
   let changesB = [];
   let latestImportedDraft = null;
@@ -576,12 +601,68 @@
     return merged;
   }
 
+  async function fetchSiteConfig() {
+    const r = await fetch(`/api/sites/${encodeURIComponent(currentSiteId)}`);
+    const j = await r.json();
+    if (!j?.ok) throw new Error(j?.reason || "site fetch failed");
+    return j.site || null;
+  }
+
+  function getPreviewTargets() {
+    return Array.isArray(currentSiteConfig?.preview_targets) ? currentSiteConfig.preview_targets : [];
+  }
+
+  function getTargetById(targetId) {
+    return getPreviewTargets().find((target) => target.id === targetId) || null;
+  }
+
+  function getDefaultTarget() {
+    const targets = getPreviewTargets();
+    return targets.find((target) => target.default) || targets[0] || null;
+  }
+
+  function populateTargetSelect() {
+    const targets = getPreviewTargets();
+    targetSelect.innerHTML = "";
+
+    if (targets.length === 0) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "preview target 없음";
+      targetSelect.appendChild(option);
+      targetSelect.disabled = true;
+      return;
+    }
+
+    targets.forEach((target) => {
+      const option = document.createElement("option");
+      option.value = target.id;
+      option.textContent = target.label || target.url_prefix || target.id;
+      targetSelect.appendChild(option);
+    });
+    targetSelect.disabled = false;
+  }
+
+  function applyTarget(target, options) {
+    if (!target) return;
+    currentTarget = target;
+    targetSelect.value = target.id;
+    frame.src = target.preview_url;
+    if (!options?.preserveExpKey) {
+      expKeyInput.value = target.experiment_key || getDefaultExpKey();
+    }
+    urlPrefixInput.value = target.url_prefix || "/";
+    updateEditorCopilotMeta();
+    log(`navigate iframe -> ${target.preview_url}`);
+  }
+
   function setTargetByPath(pathname) {
     if (!pathname) return;
-    if (pathname.startsWith("/checkout")) targetSelect.value = "/checkout?product=neo-coffee";
-    else if (pathname.startsWith("/detail")) targetSelect.value = "/detail?product=neo-coffee";
-    else targetSelect.value = "/";
-    frame.src = targetSelect.value;
+    const match = getPreviewTargets()
+      .filter((target) => pathname.startsWith(target.url_prefix || "/"))
+      .sort((a, b) => (b.url_prefix || "").length - (a.url_prefix || "").length)[0] || getDefaultTarget();
+    if (!match) return;
+    applyTarget(match, { preserveExpKey: true });
     urlPrefixInput.value = pathname === "/" ? "/" : pathname;
   }
 
@@ -650,21 +731,26 @@
   }
 
   function applyPreviewNow() {
-    if (currentVariant !== "B") setVariant("B");
+    if (currentVariant !== "B") {
+      setVariant("B");
+      log(`preview apply (B, ${changesB.length})`);
+      return;
+    }
     postToFrame("EDITOR_PREVIEW_SET_VARIANT", { variant: "B", changes: changesB });
     log(`preview apply (B, ${changesB.length})`);
   }
 
   function getDefaultExpKey() {
-    const path = new URL(targetSelect.value, location.origin).pathname;
+    if (currentTarget?.experiment_key) return currentTarget.experiment_key;
+    const path = currentTarget?.url_prefix || "/";
     if (path.startsWith("/checkout")) return "exp_checkout_cta_v1";
     if (path.startsWith("/detail")) return "exp_detail_cta_v1";
+    if (path.startsWith("/collection")) return "exp_collection_cta_v1";
     return "exp_main_cta_v1";
   }
 
   function getDefaultUrlPrefix() {
-    const path = new URL(targetSelect.value, location.origin).pathname;
-    // query 제외하고 prefix만
+    const path = currentTarget?.url_prefix || "/";
     return path === "/" ? "/" : path;
   }
 
@@ -691,7 +777,7 @@
 
     // Real 적용은 서버에 “running”으로 저장/배포
     const payload = {
-      site_id: "ab-sample",
+      site_id: currentSiteId,
       key: expKey,
       url_prefix: urlPrefix,
       traffic: { A: 50, B: 50 },
@@ -719,8 +805,8 @@
       log(`✅ Real applied: ${expKey} (v${j.experiment.version}) url_prefix=${urlPrefix}`);
 
       // Real 적용 후: 실제 동작 확인을 위해 새 탭으로 열기
-      const target = targetSelect.value;
-      const realUrl = new URL(target, location.origin);
+      const liveUrl = currentTarget?.live_url || currentTarget?.preview_url || "/";
+      const realUrl = new URL(liveUrl, location.origin);
       realUrl.searchParams.set("__real", "1"); // 표시용(필수 아님)
       window.open(realUrl.toString(), "_blank", "noopener,noreferrer");
 
@@ -733,12 +819,9 @@
 
   // --- UI hooks ---
   targetSelect.addEventListener("change", () => {
-    frame.src = targetSelect.value;
-    // 기본값 자동 채우기
-    expKeyInput.value = getDefaultExpKey();
-    urlPrefixInput.value = getDefaultUrlPrefix();
-    updateEditorCopilotMeta();
-    log(`navigate iframe -> ${targetSelect.value}`);
+    const target = getTargetById(targetSelect.value) || getDefaultTarget();
+    if (!target) return;
+    applyTarget(target);
   });
 
   expKeyInput.addEventListener("input", () => updateEditorCopilotMeta());
@@ -798,8 +881,8 @@
   realApplyBtn.addEventListener("click", () => realApplyToServer());
 
   openRealBtn.addEventListener("click", () => {
-    const target = targetSelect.value;
-    const u = new URL(target, location.origin);
+    const liveUrl = currentTarget?.live_url || currentTarget?.preview_url || "/";
+    const u = new URL(liveUrl, location.origin);
     u.searchParams.set("__real", "1");
     window.open(u.toString(), "_blank", "noopener,noreferrer");
   });
@@ -889,8 +972,13 @@
     }
 
     if (data.type === "EDITOR_APPLY_RESULT") {
-      if (data.ok) log(`apply ok: ${data.message || ""}`);
-      else log(`apply fail: ${data.message || ""}`);
+      if (data.ok) {
+        statusText.textContent = `미리보기 적용됨 (${data.message || "ok"})`;
+        log(`apply ok: ${data.message || ""}`);
+      } else {
+        statusText.textContent = `미리보기 적용 실패 (${data.message || "원인 불명"})`;
+        log(`apply fail: ${data.message || ""}`);
+      }
       return;
     }
 
@@ -900,17 +988,34 @@
     }
   });
 
-  // init defaults
-  expKeyInput.value = getDefaultExpKey();
-  urlPrefixInput.value = getDefaultUrlPrefix();
+  async function initEditor() {
+    currentSiteConfig = await fetchSiteConfig();
+    populateTargetSelect();
 
-  renderChangesList();
-  initCopilot();
-  setEditorCopilotCollapsed(true);
-  setComposerMode("text");
-  setPickMode(true);
-  setVariant("A");
-  updateEditorCopilotMeta();
-  loadPendingDraftFromStorage();
-  log("editor ready");
+    const params = new URLSearchParams(location.search);
+    const targetId = (params.get("target") || "").trim();
+    const initialTarget = getTargetById(targetId) || getDefaultTarget();
+
+    if (initialTarget) {
+      applyTarget(initialTarget);
+    } else {
+      expKeyInput.value = getDefaultExpKey();
+      urlPrefixInput.value = getDefaultUrlPrefix();
+    }
+
+    renderChangesList();
+    initCopilot();
+    setEditorCopilotCollapsed(true);
+    setComposerMode("text");
+    setPickMode(true);
+    setVariant("A");
+    updateEditorCopilotMeta();
+    loadPendingDraftFromStorage();
+    log(`editor ready (${currentSiteId})`);
+  }
+
+  initEditor().catch((error) => {
+    alert(String(error));
+    log(`editor init failed: ${String(error)}`);
+  });
 })();

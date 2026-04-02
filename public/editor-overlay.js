@@ -77,13 +77,25 @@
   }
 
   // ---------- Selector Generator (MVP) ----------
-  function cssEscape(v) { return String(v).replace(/"/g, '\\"'); }
+  function cssEscape(v) {
+    const value = String(v == null ? "" : v);
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return value
+      .replace(/^[0-9]/, (match) => `\\3${match} `)
+      .replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch}`);
+  }
+
+  function attrEscape(v) {
+    return String(v == null ? "" : v).replace(/"/g, '\\"');
+  }
 
   function buildSelector(el) {
     if (!(el instanceof Element)) return null;
 
     const tid = el.getAttribute("data-track-id");
-    if (tid) return `[data-track-id="${cssEscape(tid)}"]`;
+    if (tid) return `[data-track-id="${attrEscape(tid)}"]`;
 
     if (el.id) return `#${cssEscape(el.id)}`;
 
@@ -159,7 +171,7 @@
     });
   }
 
-  function resetAll() {
+  function resetAll(options) {
     // CSS 주입 원복
     injectedStyle.textContent = "";
 
@@ -185,16 +197,18 @@
     }
 
     // 원본맵은 유지(다시 B 적용할 때 재스냅샷 필요 없게)
-    post("EDITOR_APPLY_RESULT", { ok: true, message: "reset done" });
+    if (!options?.silent) {
+      post("EDITOR_APPLY_RESULT", { ok: true, message: "reset done" });
+    }
   }
 
   function applyOneChange(change) {
-    if (!change) return;
+    if (!change) return { ok: false, message: "empty change" };
 
     // global CSS inject
     if (change.type === "inject_css") {
       injectedStyle.textContent = String(change.css || "");
-      return;
+      return { ok: true, message: "applied global css" };
     }
 
     const selector = change.selector;
@@ -202,8 +216,7 @@
     const els = qsaSafe(selector);
 
     if (els.length === 0) {
-      post("EDITOR_APPLY_RESULT", { ok: false, message: `selector not found: ${selector}` });
-      return;
+      return { ok: false, message: `selector not found: ${selector}` };
     }
 
     // 원본 스냅샷(첫 요소 기준)
@@ -241,12 +254,26 @@
       });
     });
 
-    post("EDITOR_APPLY_RESULT", { ok: true, message: `applied: ${selector}` });
+    return { ok: true, message: `applied: ${selector}` };
   }
 
   function applyChanges(changes) {
     const list = Array.isArray(changes) ? changes : [];
-    list.forEach(applyOneChange);
+    const results = list.map(applyOneChange);
+    const failures = results.filter((result) => !result?.ok);
+    if (failures.length > 0) {
+      const first = failures[0];
+      post("EDITOR_APPLY_RESULT", {
+        ok: false,
+        message: `${failures.length}개 실패 / ${list.length}개 변경 - ${first?.message || "apply failed"}`,
+      });
+      return;
+    }
+
+    post("EDITOR_APPLY_RESULT", {
+      ok: true,
+      message: `${list.length}개 변경 적용 완료`,
+    });
   }
 
   // ---------- Picking handlers ----------
@@ -329,7 +356,7 @@
         resetAll();
       } else if (v === "B") {
         // 항상 “A로 리셋 후 B 적용” 방식이 예측 가능
-        resetAll();
+        resetAll({ silent: true });
         applyChanges(changes);
       }
       refreshBoxes();

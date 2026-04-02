@@ -1,8 +1,14 @@
 // public/dashboard.js
 (function () {
-  const SITE_ID = "ab-sample";
+  const DEFAULT_SITE_ID = "legend-ecommerce";
+  const SITE_STORAGE_KEY = "uxsdk.dashboard.siteId";
   const expTbody = document.getElementById("expTbody");
   const refreshBtn = document.getElementById("refreshBtn");
+  const siteSelect = document.getElementById("siteSelect");
+  const siteIdText = document.getElementById("siteIdText");
+  const topEditorLink = document.getElementById("topEditorLink");
+  const quickTestLinks = document.getElementById("quickTestLinks");
+  const quickTestHint = document.getElementById("quickTestHint");
 
   const metricsCard = document.getElementById("metricsCard");
   const metricKeyEl = document.getElementById("metricKey");
@@ -34,11 +40,113 @@
 
   const DRAFT_STORAGE_KEY = "uxsdk.analyticsCopilotDraft";
   const state = {
+    siteId: resolveSiteId(),
+    sites: [],
+    siteConfig: null,
     experiments: [],
     selectedExperimentKey: null,
     latestDraft: null,
     chatWidget: null,
   };
+
+  function resolveSiteId() {
+    const params = new URLSearchParams(location.search);
+    const querySiteId = (params.get("site_id") || "").trim();
+    const storedSiteId = (localStorage.getItem(SITE_STORAGE_KEY) || "").trim();
+    return querySiteId || storedSiteId || DEFAULT_SITE_ID;
+  }
+
+  function setSiteInUrl(siteId) {
+    const url = new URL(location.href);
+    url.searchParams.set("site_id", siteId);
+    history.replaceState({}, "", url.toString());
+  }
+
+  function ensureSiteOption(siteId) {
+    if (!siteSelect || !siteId) return;
+    const hasOption = Array.from(siteSelect.options).some((option) => option.value === siteId);
+    if (!hasOption) {
+      const option = document.createElement("option");
+      option.value = siteId;
+      option.textContent = siteId;
+      siteSelect.appendChild(option);
+    }
+  }
+
+  function getCurrentSiteId() {
+    return state.siteId || DEFAULT_SITE_ID;
+  }
+
+  async function fetchSites() {
+    const r = await fetch("/api/sites");
+    const j = await r.json();
+    if (!j?.ok) throw new Error(j?.reason || "sites fetch failed");
+    return Array.isArray(j.sites) ? j.sites : [];
+  }
+
+  function getCurrentSiteConfig() {
+    if (state.siteConfig?.site_id === getCurrentSiteId()) return state.siteConfig;
+    return state.sites.find((site) => site.site_id === getCurrentSiteId()) || null;
+  }
+
+  function populateSiteSelect() {
+    if (!siteSelect) return;
+    const current = getCurrentSiteId();
+    siteSelect.innerHTML = "";
+
+    const sites = state.sites.length ? state.sites : [{ site_id: current, name: current }];
+    sites.forEach((site) => {
+      const option = document.createElement("option");
+      option.value = site.site_id;
+      option.textContent = site.name ? `${site.name} (${site.site_id})` : site.site_id;
+      siteSelect.appendChild(option);
+    });
+
+    ensureSiteOption(current);
+    siteSelect.value = current;
+  }
+
+  function renderQuickTestLinks() {
+    if (!quickTestLinks) return;
+    const site = getCurrentSiteConfig();
+    const targets = Array.isArray(site?.preview_targets) ? site.preview_targets.slice(0, 3) : [];
+    if (targets.length === 0) {
+      quickTestLinks.innerHTML = '<span class="muted">preview target이 없습니다.</span>';
+      return;
+    }
+
+    quickTestLinks.innerHTML = targets.map((target) => `
+      <a class="btn primary" href="${escapeHtml(target.live_url || target.preview_url || "/")}" target="_blank" rel="noopener">${escapeHtml(target.label || target.url_prefix || "Open")}</a>
+    `).join("");
+  }
+
+  function getEditorUrl(extraParams) {
+    const url = new URL("/editor", location.origin);
+    url.searchParams.set("site_id", getCurrentSiteId());
+    if (extraParams && typeof extraParams === "object") {
+      Object.entries(extraParams).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && String(value).trim() !== "") {
+          url.searchParams.set(key, String(value));
+        }
+      });
+    }
+    return `${url.pathname}${url.search}`;
+  }
+
+  function updateSiteContextUI() {
+    const siteId = getCurrentSiteId();
+    state.siteConfig = getCurrentSiteConfig();
+    ensureSiteOption(siteId);
+    populateSiteSelect();
+    if (siteIdText) siteIdText.textContent = siteId;
+    if (topEditorLink) topEditorLink.href = getEditorUrl();
+    renderQuickTestLinks();
+    if (quickTestHint) {
+      quickTestHint.textContent = siteId === "legend-ecommerce"
+        ? "현재 dashboard는 Ecommerce 전용 데이터(legend-ecommerce)를 보고 있습니다. Quick Test와 Visual Editor도 이 사이트의 preview target을 기준으로 동작합니다."
+        : "현재 dashboard는 선택된 site_id 기준으로 동작합니다. 다른 유저처럼 보려면 시크릿 창 또는 localStorage 삭제.";
+    }
+  }
 
   function fmtPct(x) {
     if (typeof x !== "number" || !isFinite(x)) return "—";
@@ -87,17 +195,18 @@
   }
 
   async function fetchExperiments() {
-    const r = await fetch(`/api/experiments?site_id=${encodeURIComponent(SITE_ID)}`);
+    const r = await fetch(`/api/experiments?site_id=${encodeURIComponent(getCurrentSiteId())}`);
     const j = await r.json();
     if (!j?.ok) throw new Error("experiments fetch failed");
     return j.experiments || [];
   }
 
   async function setStatus(id, status) {
-    const r = await fetch(`/api/experiments/${encodeURIComponent(id)}`, {
+    const siteId = getCurrentSiteId();
+    const r = await fetch(`/api/experiments/${encodeURIComponent(id)}?site_id=${encodeURIComponent(siteId)}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status, site_id: siteId })
     });
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "status update failed");
@@ -116,31 +225,33 @@
   }
 
   async function deleteExp(id) {
-    const r = await fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const r = await fetch(`/api/experiments/${encodeURIComponent(id)}?site_id=${encodeURIComponent(getCurrentSiteId())}`, {
+      method: "DELETE"
+    });
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "delete failed");
   }
 
   async function fetchMetrics(key) {
-    const r = await fetch(`/api/metrics?site_id=${encodeURIComponent(SITE_ID)}&key=${encodeURIComponent(key)}`);
+    const r = await fetch(`/api/metrics?site_id=${encodeURIComponent(getCurrentSiteId())}&key=${encodeURIComponent(key)}`);
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "metrics failed");
     return j;
   }
   async function fetchSessions() {
-    const r = await fetch(`/api/sessions?site_id=${encodeURIComponent(SITE_ID)}&limit=12`);
+    const r = await fetch(`/api/sessions?site_id=${encodeURIComponent(getCurrentSiteId())}&limit=12`);
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "sessions failed");
     return j.sessions || [];
   }
   async function fetchLabelsSummary() {
-    const r = await fetch(`/api/labels/summary?site_id=${encodeURIComponent(SITE_ID)}`);
+    const r = await fetch(`/api/labels/summary?site_id=${encodeURIComponent(getCurrentSiteId())}`);
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "labels summary failed");
     return j.summary || [];
   }
   async function fetchInsights() {
-    const r = await fetch(`/api/insights?site_id=${encodeURIComponent(SITE_ID)}&reps=3`);
+    const r = await fetch(`/api/insights?site_id=${encodeURIComponent(getCurrentSiteId())}&reps=3`);
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "insights failed");
     return j;
@@ -197,8 +308,8 @@
     if (!state.latestDraft) return;
     const draft = state.latestDraft.draft || {};
     const changesB = Array.isArray(state.latestDraft.changesB) ? state.latestDraft.changesB : [];
-    const payload = {
-      site_id: SITE_ID,
+      const payload = {
+      site_id: getCurrentSiteId(),
       key: draft.key || state.selectedExperimentKey || `exp_copilot_${Date.now()}`,
       url_prefix: draft.target_page || "/",
       traffic: { A: 50, B: 50 },
@@ -420,7 +531,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             ${metricsBtn}
             ${btnToggle}
-            <a class="btn" href="/editor" target="_blank" rel="noopener">Open Editor</a>
+            <a class="btn" href="${getEditorUrl()}" target="_blank" rel="noopener">Open Editor</a>
             <button class="btn danger" data-act="del" data-id="${exp.id}">Delete</button>
           </div>
         </td>
@@ -429,13 +540,16 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   }
 
   async function render() {
-    const [exps, sessions, labelSummary, insightData] = await Promise.all([
+    const [sites, exps, sessions, labelSummary, insightData] = await Promise.all([
+      fetchSites(),
       fetchExperiments(),
       fetchSessions(),
       fetchLabelsSummary(),
       fetchInsights()
     ]);
 
+    state.sites = sites;
+    state.siteConfig = getCurrentSiteConfig();
     state.experiments = exps;
     if (!state.selectedExperimentKey && exps.length > 0) {
       state.selectedExperimentKey = exps[0].key || null;
@@ -449,6 +563,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
     renderSessions(sessions);
     renderLabelSummary(labelSummary);
     renderUxOverview(labelSummary, insightData);
+    updateSiteContextUI();
   }
 
   expTbody.addEventListener("click", async (e) => {
@@ -464,7 +579,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
         const exp = state.experiments.find((item) => item.id === btn.dataset.id);
         if (!exp) throw new Error("draft not found");
         stageExperimentForEditor(exp);
-        window.open("/editor?from=copilot", "_blank", "noopener");
+        window.open(getEditorUrl({ from: "copilot" }), "_blank", "noopener");
       } else if (act === "pause") {
         await setStatus(btn.dataset.id, "paused");
         await render();
@@ -498,6 +613,18 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   });
 
   refreshBtn.addEventListener("click", () => render());
+  if (siteSelect) {
+    siteSelect.addEventListener("change", () => {
+      const nextSiteId = String(siteSelect.value || "").trim() || DEFAULT_SITE_ID;
+      state.siteId = nextSiteId;
+      state.selectedExperimentKey = null;
+      metricsCard.style.display = "none";
+      localStorage.setItem(SITE_STORAGE_KEY, nextSiteId);
+      setSiteInUrl(nextSiteId);
+      updateSiteContextUI();
+      render().catch((e) => alert(String(e)));
+    });
+  }
   saveDraftBtn.addEventListener("click", async () => {
     try {
       saveDraftBtn.disabled = true;
@@ -510,7 +637,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   });
   openDraftInEditorBtn.addEventListener("click", () => {
     if (!state.latestDraft) return;
-    window.open("/editor?from=copilot", "_blank", "noopener");
+    window.open(getEditorUrl({ from: "copilot" }), "_blank", "noopener");
   });
 
   if (window.AnalyticsChatWidget) {
@@ -533,5 +660,8 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
     updateCopilotExperimentUI();
   }
 
+  localStorage.setItem(SITE_STORAGE_KEY, getCurrentSiteId());
+  setSiteInUrl(getCurrentSiteId());
+  updateSiteContextUI();
   render().catch((e) => alert(String(e)));
 })();

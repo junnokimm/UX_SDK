@@ -19,15 +19,14 @@
     <div class="controls">
       <label class="label">대상 URL</label>
       <select id="targetSelect">
-        <option value="/">/ (main)</option>
-        <option value="/detail?product=neo-coffee">/detail</option>
-        <option value="/checkout?product=neo-coffee">/checkout</option>
+        <option value="">loading…</option>
       </select>
 
       <input id="expKey" type="text" placeholder="experiment key (예: exp_checkout_cta_v1)" style="width:260px" />
       <input id="urlPrefix" type="text" placeholder="url prefix (예: /checkout)" style="width:200px" />
 
       <button id="reloadBtn" class="btn">리로드</button>
+      <a id="openDashboardLink" class="btn" href="/dashboard">대시보드</a>
       <button id="togglePickBtn" class="btn primary" data-state="on">선택모드: ON</button>
 
       <div class="seg">
@@ -241,7 +240,7 @@ padding: 16px 24px;'></textarea>
       </div>
 
       <div class="iframeWrap">
-        <iframe id="previewFrame" src="/" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        <iframe id="previewFrame" src="about:blank" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       </div>
     </section>
   </main>

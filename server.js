@@ -17,7 +17,43 @@ const { generateInsights } = require("./insights/generator");
 loadEnvFromFile();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  return next();
+});
+
+app.use((req, res, next) => {
+  const noStorePaths = [
+    "/editor",
+    "/dashboard",
+    "/editor.js",
+    "/dashboard.js",
+    "/analytics-chat.js",
+    "/api/sites",
+  ];
+  if (noStorePaths.some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`)) || req.path.startsWith("/preview/")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  }
+  return next();
+});
 
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -33,6 +69,7 @@ app.get("/dashboard", (req, res) => res.sendFile(path.join(__dirname, "public", 
 const DATA_DIR = path.join(__dirname, "data");
 const EVENTS_FILE = path.join(DATA_DIR, "events.jsonl");
 const EXP_FILE = path.join(DATA_DIR, "experiments.json");
+const SITES_FILE = path.join(DATA_DIR, "sites.json");
 const PRODUCTS_FILE = path.join(DATA_DIR, "products.json");
 const FAQ_FILE = path.join(DATA_DIR, "faq.json");
 const POLICIES_FILE = path.join(DATA_DIR, "policies.json");
@@ -44,6 +81,32 @@ const CHAT_FEEDBACK_FILE = path.join(DATA_DIR, "chat_feedback.json");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 ensureJsonFile(EXP_FILE, { experiments: [] });
+ensureJsonFile(SITES_FILE, {
+  sites: [
+    {
+      site_id: "legend-ecommerce",
+      name: "Legend Ecommerce",
+      preview_base_url: "http://127.0.0.1:8080",
+      api_base_url: "http://127.0.0.1:3000",
+      preview_targets: [
+        { id: "home", label: "홈", path: "/", url_prefix: "/", default: true, experiment_key: "exp_home_cta_v1" },
+        { id: "collection", label: "컬렉션", path: "/collection", url_prefix: "/collection", experiment_key: "exp_collection_cta_v1" },
+        { id: "checkout", label: "체크아웃", path: "/checkout", url_prefix: "/checkout", experiment_key: "exp_checkout_cta_v1" }
+      ]
+    },
+    {
+      site_id: "ab-sample",
+      name: "SDK Sample",
+      preview_base_url: "http://127.0.0.1:3001",
+      api_base_url: "http://127.0.0.1:3001",
+      preview_targets: [
+        { id: "main", label: "메인", path: "/", url_prefix: "/", default: true, experiment_key: "exp_main_cta_v1" },
+        { id: "detail", label: "상세", path: "/detail?product=neo-coffee", url_prefix: "/detail", experiment_key: "exp_detail_cta_v1" },
+        { id: "checkout", label: "체크아웃", path: "/checkout?product=neo-coffee", url_prefix: "/checkout", experiment_key: "exp_checkout_cta_v1" }
+      ]
+    }
+  ]
+});
 ensureJsonFile(PRODUCTS_FILE, {
   products: [
     {
@@ -157,6 +220,384 @@ function writeJson(file, obj) {
 }
 function now() { return Date.now(); }
 function rid() { return crypto.randomBytes(8).toString("hex"); }
+function safeAbsoluteUrl(baseUrl, value) {
+  try {
+    return new URL(value || "/", baseUrl).toString();
+  } catch {
+    return new URL("/", baseUrl).toString();
+  }
+}
+function loadSitesDb() {
+  return readJson(SITES_FILE) || { sites: [] };
+}
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "page";
+}
+function stripHtml(value) {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+function buildExperimentKeyForPath(pathname) {
+  const clean = String(pathname || "/").split("?")[0] || "/";
+  if (clean === "/") return "exp_home_cta_v1";
+  const parts = clean.split("/").filter(Boolean).map(slugify).filter(Boolean);
+  return `exp_${parts.join("_") || "page"}_cta_v1`;
+}
+function inferTargetType(pathname) {
+  const path = String(pathname || "/").toLowerCase();
+  if (path === "/") return "home";
+  if (path.includes("checkout")) return "checkout";
+  if (path.includes("cart")) return "cart";
+  if (path.includes("product")) return "product";
+  if (path.includes("shop")) return "shop";
+  if (path.includes("collection")) return "collection";
+  if (path.includes("order-complete")) return "order-complete";
+  if (path.includes("login")) return "login";
+  if (path.includes("join") || path.includes("signup")) return "join";
+  return slugify(path.split("/").filter(Boolean)[0] || "page");
+}
+function scoreCandidatePath(pathname) {
+  const type = inferTargetType(pathname);
+  const table = {
+    home: 100,
+    checkout: 95,
+    cart: 92,
+    product: 90,
+    shop: 88,
+    collection: 82,
+    "order-complete": 55,
+    login: 25,
+    join: 25,
+  };
+  return table[type] || 40;
+}
+function labelForCandidate(pathname, hint) {
+  const type = inferTargetType(pathname);
+  const table = {
+    home: "홈",
+    checkout: "체크아웃",
+    cart: "장바구니",
+    product: "상품상세",
+    shop: "샵",
+    collection: "컬렉션",
+    "order-complete": "주문완료",
+    login: "로그인",
+    join: "회원가입",
+  };
+  if (table[type]) return table[type];
+  const hinted = String(hint || "").trim();
+  if (hinted && hinted.length <= 40) return hinted;
+  return String(pathname || "/");
+}
+function targetIdForPath(pathname) {
+  const type = inferTargetType(pathname);
+  if (type === "home") return "home";
+  const path = String(pathname || "/").split("?")[0];
+  const tail = path.split("/").filter(Boolean).slice(1).join("-");
+  return tail ? `${type}-${slugify(tail)}` : type;
+}
+function matchesPattern(pathname, pattern) {
+  if (!pattern) return false;
+  const value = String(pathname || "");
+  const source = String(pattern || "").trim();
+  if (!source) return false;
+  if (source.startsWith("/") && source.endsWith("/")) {
+    try { return new RegExp(source.slice(1, -1)).test(value); } catch { return false; }
+  }
+  return value.includes(source);
+}
+function normalizeDiscoverablePath(baseUrl, href) {
+  const raw = String(href || "").trim();
+  if (!raw || raw.startsWith("#") || raw.startsWith("mailto:") || raw.startsWith("tel:") || raw.startsWith("javascript:")) return null;
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(raw, base);
+    if (url.origin !== base.origin) return null;
+    if (!/^https?:$/.test(url.protocol)) return null;
+    const pathname = url.pathname || "/";
+    if (/\.(css|js|mjs|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|map)$/i.test(pathname)) return null;
+    return `${pathname}${url.search}` || "/";
+  } catch {
+    return null;
+  }
+}
+function extractHtmlTitle(html) {
+  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? decodeHtml(stripHtml(match[1])) : "";
+}
+function extractAnchorCandidates(html, baseUrl) {
+  const source = String(html || "");
+  const candidates = [];
+  const regex = /<a\b[^>]*href=(['"])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = regex.exec(source))) {
+    const path = normalizeDiscoverablePath(baseUrl, match[2]);
+    if (!path) continue;
+    candidates.push({
+      path,
+      text: decodeHtml(stripHtml(match[3]))
+    });
+  }
+  return candidates;
+}
+async function fetchHtmlDocument(url) {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": "ux-sdk-target-inference",
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok || !/text\/html/i.test(contentType)) {
+    return null;
+  }
+  return response.text();
+}
+async function inferPreviewTargets(site) {
+  const generation = site?.target_generation || {};
+  const baseUrl = String(site?.preview_base_url || "").trim();
+  if (!baseUrl) return [];
+
+  const includePatterns = Array.isArray(generation.include_patterns) ? generation.include_patterns : [];
+  const excludePatterns = Array.isArray(generation.exclude_patterns) ? generation.exclude_patterns : [];
+  const maxTargets = Math.max(1, Math.min(Number(generation.max_targets) || 6, 12));
+  const maxPagesToScan = Math.max(1, Math.min(Number(generation.max_pages_to_scan) || 6, 12));
+  const seedPaths = Array.from(new Set(["/", ...((Array.isArray(generation.seed_paths) ? generation.seed_paths : []))]
+    .map((path) => normalizeDiscoverablePath(baseUrl, path))
+    .filter(Boolean)));
+
+  const queue = [...seedPaths];
+  const visitedPages = new Set();
+  const candidates = new Map();
+
+  while (queue.length && visitedPages.size < maxPagesToScan) {
+    const currentPath = queue.shift();
+    if (!currentPath || visitedPages.has(currentPath)) continue;
+    visitedPages.add(currentPath);
+
+    try {
+      const html = await fetchHtmlDocument(safeAbsoluteUrl(baseUrl, currentPath));
+      if (!html) continue;
+
+      const title = extractHtmlTitle(html);
+      const currentKey = currentPath.split("?")[0] || "/";
+      if (!excludePatterns.some((pattern) => matchesPattern(currentKey, pattern))) {
+        candidates.set(currentPath, {
+          path: currentPath,
+          labelHint: title,
+        });
+      }
+
+      const anchors = extractAnchorCandidates(html, baseUrl);
+      for (const anchor of anchors) {
+        const key = anchor.path.split("?")[0] || "/";
+        if (excludePatterns.some((pattern) => matchesPattern(key, pattern))) continue;
+        if (includePatterns.length > 0 && !includePatterns.some((pattern) => matchesPattern(key, pattern))) continue;
+        if (!candidates.has(anchor.path)) {
+          candidates.set(anchor.path, {
+            path: anchor.path,
+            labelHint: anchor.text || title,
+          });
+        }
+        if (!visitedPages.has(anchor.path) && queue.length < maxPagesToScan * 3) {
+          queue.push(anchor.path);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const discoveredAt = Date.now();
+  const normalized = Array.from(candidates.values())
+    .map((candidate) => {
+      const pathname = candidate.path.split("?")[0] || "/";
+      return {
+        id: targetIdForPath(pathname),
+        label: labelForCandidate(pathname, candidate.labelHint),
+        path: candidate.path,
+        url_prefix: pathname,
+        default: pathname === "/",
+        experiment_key: buildExperimentKeyForPath(pathname),
+        origin: "inferred",
+        confidence: scoreCandidatePath(pathname),
+        last_discovered_at: discoveredAt,
+      };
+    })
+    .sort((a, b) => (b.confidence - a.confidence) || a.path.localeCompare(b.path));
+
+  const byId = new Map();
+  for (const target of normalized) {
+    if (!byId.has(target.id)) byId.set(target.id, target);
+  }
+
+  const result = Array.from(byId.values()).slice(0, maxTargets);
+  if (!result.some((target) => target.default)) {
+    const home = result.find((target) => target.url_prefix === "/");
+    if (home) home.default = true;
+    else if (result[0]) result[0].default = true;
+  }
+  return result;
+}
+function mergePreviewTargets(manualTargets, inferredTargets) {
+  const merged = [];
+  const seen = new Set();
+  const append = (target) => {
+    if (!target) return;
+    const key = `${String(target.id || "").trim()}::${String(target.path || "").trim()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(target);
+  };
+
+  inferredTargets.forEach(append);
+  manualTargets.forEach(append);
+  return merged;
+}
+function normalizeSite(site) {
+  if (!site || typeof site !== "object") return null;
+
+  const site_id = String(site.site_id || "").trim();
+  const preview_base_url = String(site.preview_base_url || "").trim();
+  if (!site_id || !preview_base_url) return null;
+
+  const api_base_url = String(site.api_base_url || preview_base_url).trim();
+  const target_generation = site.target_generation || { mode: "manual" };
+  const manualTargets = Array.isArray(site.preview_targets) ? site.preview_targets : [];
+  const inferredTargets = Array.isArray(site.inferred_preview_targets) ? site.inferred_preview_targets : [];
+  const rawTargets = target_generation.mode === "inferred"
+    ? (inferredTargets.length ? inferredTargets : manualTargets)
+    : target_generation.mode === "hybrid"
+      ? mergePreviewTargets(manualTargets, inferredTargets)
+      : manualTargets;
+  const hasExplicitDefault = rawTargets.some((target) => Boolean(target?.default));
+  const preview_targets = rawTargets.map((target, index) => {
+    const id = String(target?.id || `target-${index + 1}`).trim() || `target-${index + 1}`;
+    const pathValue = String(target?.path || "/").trim() || "/";
+    const label = String(target?.label || pathValue).trim() || pathValue;
+    const liveUrl = safeAbsoluteUrl(preview_base_url, pathValue);
+    const parsed = new URL(liveUrl);
+    const url_prefix = String(target?.url_prefix || parsed.pathname || "/").trim() || "/";
+    return {
+      id,
+      label,
+      path: pathValue,
+      url_prefix,
+      default: hasExplicitDefault ? Boolean(target?.default) : index === 0,
+      experiment_key: String(target?.experiment_key || "").trim() || null,
+      origin: String(target?.origin || (Array.isArray(site.inferred_preview_targets) && site.inferred_preview_targets.includes(target) ? "inferred" : "manual")).trim() || "manual",
+      confidence: Number.isFinite(Number(target?.confidence)) ? Number(target.confidence) : null,
+      last_discovered_at: Number.isFinite(Number(target?.last_discovered_at)) ? Number(target.last_discovered_at) : null,
+      live_url: liveUrl,
+      preview_url: `/preview/${encodeURIComponent(site_id)}${parsed.pathname}${parsed.search}`,
+    };
+  });
+
+  return {
+    site_id,
+    name: String(site.name || site_id).trim() || site_id,
+    preview_base_url,
+    api_base_url,
+    target_generation,
+    inferred_targets_updated_at: Number.isFinite(Number(site.inferred_targets_updated_at)) ? Number(site.inferred_targets_updated_at) : null,
+    preview_targets,
+  };
+}
+function listSites() {
+  return (loadSitesDb().sites || []).map(normalizeSite).filter(Boolean);
+}
+function getSiteById(siteId) {
+  return listSites().find((site) => site.site_id === siteId) || null;
+}
+function shouldRefreshInferredTargets(site) {
+  const generation = site?.target_generation || {};
+  if (!generation || generation.mode === "manual") return false;
+  const ttlSec = Math.max(0, Number(generation.refresh_ttl_sec) || 0);
+  const updatedAt = Number(site?.inferred_targets_updated_at) || 0;
+  const inferredTargets = Array.isArray(site?.inferred_preview_targets) ? site.inferred_preview_targets : [];
+  if (inferredTargets.length === 0) return true;
+  if (ttlSec <= 0) return false;
+  return (Date.now() - updatedAt) > ttlSec * 1000;
+}
+async function ensureSiteInference(siteId, options) {
+  const force = Boolean(options?.force);
+  const db = loadSitesDb();
+  const idx = (db.sites || []).findIndex((site) => String(site?.site_id || "").trim() === siteId);
+  if (idx < 0) return null;
+
+  const rawSite = db.sites[idx];
+  if (!rawSite?.target_generation || rawSite.target_generation.mode === "manual") {
+    return normalizeSite(rawSite);
+  }
+
+  if (!force && !shouldRefreshInferredTargets(rawSite)) {
+    return normalizeSite(rawSite);
+  }
+
+  const inferredTargets = await inferPreviewTargets(rawSite);
+  rawSite.inferred_preview_targets = inferredTargets;
+  rawSite.inferred_targets_updated_at = Date.now();
+  db.sites[idx] = rawSite;
+  writeJson(SITES_FILE, db);
+  return normalizeSite(rawSite);
+}
+async function listSitesForApi() {
+  const db = loadSitesDb();
+  const sites = [];
+  for (const site of db.sites || []) {
+    const siteId = String(site?.site_id || "").trim();
+    if (!siteId) continue;
+    const normalized = await ensureSiteInference(siteId, { force: false });
+    if (normalized) sites.push(normalized);
+  }
+  return sites;
+}
+function buildPreviewBootstrap(site, previewPath) {
+  const proxyApiBaseUrl = JSON.stringify(`/preview-api/${encodeURIComponent(site.site_id)}`);
+  const initialPath = JSON.stringify(previewPath || "/");
+  return `<script>\n(function(){\n  var API_BASE_URL = ${proxyApiBaseUrl};\n  var INITIAL_PATH = ${initialPath};\n  try { history.replaceState({}, '', INITIAL_PATH); } catch (e) {}\n  var originalFetch = window.fetch ? window.fetch.bind(window) : null;\n  function mapUrl(input){\n    try {\n      if (typeof input === 'string' && input.indexOf('/api/') === 0) return API_BASE_URL + input;\n      if (input instanceof Request) {\n        var reqUrl = new URL(input.url, location.href);\n        if (reqUrl.origin === location.origin && reqUrl.pathname.indexOf('/api/') === 0) return API_BASE_URL + reqUrl.pathname + reqUrl.search;\n      }\n    } catch (e) {}\n    return input;\n  }\n  if (originalFetch) {\n    window.fetch = function(input, init){\n      var mapped = mapUrl(input);\n      if (input instanceof Request && typeof mapped === 'string') {\n        return originalFetch(new Request(mapped, input), init);\n      }\n      return originalFetch(mapped, init);\n    };\n  }\n  var originalOpen = XMLHttpRequest.prototype.open;\n  XMLHttpRequest.prototype.open = function(method, url){\n    if (typeof url === 'string' && url.indexOf('/api/') === 0) {\n      url = API_BASE_URL + url;\n    }\n    return originalOpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));\n  };\n})();\n</script>`;
+}
+function rewritePreviewText(site, text, contentType, previewPath) {
+  const siteId = encodeURIComponent(site.site_id);
+  const assetPrefix = `/preview/${siteId}`;
+  let out = text;
+
+  if (/text\/html/i.test(contentType)) {
+    out = out
+      .replace(/(href|src|action)=(["'])\/(?!\/)/g, `$1=$2${assetPrefix}/`)
+      .replace(/(["'`])\/@react-refresh(["'`])/g, `$1${assetPrefix}/@react-refresh$2`)
+      .replace(/(["'`])\/(\@react-refresh|\@vite|assets|src|node_modules)\//g, `$1${assetPrefix}/$2/`)
+      .replace(/<head([^>]*)>/i, `<head$1>${buildPreviewBootstrap(site, previewPath)}`);
+  }
+
+  if (/javascript|ecmascript|css/i.test(contentType)) {
+    out = out
+      .replace(/(["'`])\/@react-refresh(["'`])/g, `$1${assetPrefix}/@react-refresh$2`)
+      .replace(/(["'`])\/(assets|src|@react-refresh|@vite|node_modules)\//g, `$1${assetPrefix}/$2/`);
+  }
+
+  if (/css/i.test(contentType)) {
+    out = out.replace(/url\((["']?)\/(assets|src|node_modules)\//g, `url($1${assetPrefix}/$2/`);
+  }
+
+  return out;
+}
 function safeParseJsonLine(line) {
   try { return JSON.parse(line); } catch { return null; }
 }
@@ -189,6 +630,108 @@ app.post("/collect", (req, res) => {
 
   return res.json({ ok: true, received: events.length });
 });
+
+app.get("/api/sites", async (req, res) => {
+  const sites = await listSitesForApi();
+  return res.json({ ok: true, sites });
+});
+
+app.get("/api/sites/:siteId", async (req, res) => {
+  const site = await ensureSiteInference(String(req.params.siteId || "").trim(), { force: false });
+  if (!site) return res.status(404).json({ ok: false, reason: "site not found" });
+  return res.json({ ok: true, site });
+});
+
+app.get("/api/sites/:siteId/preview-targets", async (req, res) => {
+  const site = await ensureSiteInference(String(req.params.siteId || "").trim(), { force: false });
+  if (!site) return res.status(404).json({ ok: false, reason: "site not found" });
+  return res.json({ ok: true, site_id: site.site_id, preview_targets: site.preview_targets });
+});
+
+app.post("/api/sites/:siteId/preview-targets/refresh", async (req, res) => {
+  const site = await ensureSiteInference(String(req.params.siteId || "").trim(), { force: true });
+  if (!site) return res.status(404).json({ ok: false, reason: "site not found" });
+  return res.json({ ok: true, site_id: site.site_id, preview_targets: site.preview_targets, refreshed_at: Date.now() });
+});
+
+async function proxyPreviewRequest(req, res) {
+  const siteId = String(req.params.siteId || "").trim();
+  const site = getSiteById(siteId);
+  if (!site) return res.status(404).send("site not found");
+
+  const restPath = String(req.params[0] || "").trim();
+  const pathWithQuery = `/${restPath}${req.url.includes("?") ? `?${req.url.split("?")[1]}` : ""}`;
+  const upstreamUrl = safeAbsoluteUrl(site.preview_base_url, pathWithQuery === "/" ? "/" : pathWithQuery);
+  const previewPath = (() => {
+    try {
+      const parsed = new URL(upstreamUrl);
+      return `${parsed.pathname}${parsed.search}` || "/";
+    } catch {
+      return "/";
+    }
+  })();
+
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      method: "GET",
+      headers: {
+        "user-agent": req.get("user-agent") || "ux-sdk-preview-proxy",
+        accept: req.get("accept") || "*/*",
+      },
+    });
+
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    res.status(upstream.status);
+    res.setHeader("content-type", contentType);
+
+    if (/text\/html|javascript|ecmascript|css/i.test(contentType)) {
+      const text = await upstream.text();
+      return res.send(rewritePreviewText(site, text, contentType, previewPath));
+    }
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    return res.send(buffer);
+  } catch (error) {
+    return res.status(502).send(`preview proxy failed: ${String(error)}`);
+  }
+}
+
+app.get("/preview/:siteId", proxyPreviewRequest);
+app.get("/preview/:siteId/*", proxyPreviewRequest);
+
+async function proxyPreviewApiRequest(req, res) {
+  const siteId = String(req.params.siteId || "").trim();
+  const site = getSiteById(siteId);
+  if (!site) return res.status(404).json({ ok: false, reason: "site not found" });
+
+  const restPath = String(req.params[0] || "").trim();
+  const search = req.url.includes("?") ? `?${req.url.split("?")[1]}` : "";
+  const upstreamUrl = safeAbsoluteUrl(site.api_base_url, `/${restPath}${search}`);
+
+  try {
+    const headers = {
+      accept: req.get("accept") || "*/*",
+      authorization: req.get("authorization") || "",
+      cookie: req.get("cookie") || "",
+      "content-type": req.get("content-type") || "application/json",
+      "user-agent": req.get("user-agent") || "ux-sdk-preview-proxy",
+    };
+    const upstream = await fetch(upstreamUrl, {
+      method: req.method,
+      headers,
+      body: ["GET", "HEAD"].includes(req.method.toUpperCase()) ? undefined : JSON.stringify(req.body || {}),
+    });
+
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    res.status(upstream.status);
+    res.setHeader("content-type", contentType);
+    return res.send(await upstream.text());
+  } catch (error) {
+    return res.status(502).json({ ok: false, reason: `preview api proxy failed: ${String(error)}` });
+  }
+}
+
+app.all("/preview-api/:siteId/*", proxyPreviewApiRequest);
 
 // ---------- Experiment API (MVP) ----------
 // experiment = { id, site_id, key, status:"draft"|"running"|"paused", url_prefix, traffic, variants, goals, updated_at, published_at, version }
@@ -252,12 +795,16 @@ app.get("/api/experiments", (req, res) => {
 app.patch("/api/experiments/:id", (req, res) => {
   const { id } = req.params;
   const { status } = req.body || {};
+  const site_id = String(req.body?.site_id || req.query.site_id || "").trim();
   if (!["running", "paused"].includes(status)) {
     return res.status(400).json({ ok: false, reason: "status must be running|paused" });
   }
+  if (!site_id) {
+    return res.status(400).json({ ok: false, reason: "missing site_id" });
+  }
 
   const db = loadDb();
-  const idx = db.experiments.findIndex((x) => x.id === id);
+  const idx = db.experiments.findIndex((x) => x.id === id && x.site_id === site_id);
   if (idx < 0) return res.status(404).json({ ok: false, reason: "not found" });
 
   db.experiments[idx].status = status;
@@ -270,9 +817,13 @@ app.patch("/api/experiments/:id", (req, res) => {
 // delete
 app.delete("/api/experiments/:id", (req, res) => {
   const { id } = req.params;
+  const site_id = String(req.body?.site_id || req.query.site_id || "").trim();
+  if (!site_id) {
+    return res.status(400).json({ ok: false, reason: "missing site_id" });
+  }
   const db = loadDb();
   const before = db.experiments.length;
-  db.experiments = db.experiments.filter((x) => x.id !== id);
+  db.experiments = db.experiments.filter((x) => !(x.id === id && x.site_id === site_id));
   if (db.experiments.length === before) return res.status(404).json({ ok: false, reason: "not found" });
   saveDb(db);
   return res.json({ ok: true });
