@@ -1,13 +1,17 @@
 {
-  "name": "ab-sample",
+  "name": "ux-sdk-dashboard-service",
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "node server.js",
     "test": "node --test",
     "simulate": "node scripts/simulate.js",
-    "load:k6": "k6 run load/persona-load.js"
+    "load:k6": "k6 run load/persona-load.js",
+    "sdk:pack": "npm pack ./packages/browser-sdk"
   },
   "dependencies": {
     "express": "^4.19.2"

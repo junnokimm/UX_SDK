@@ -1,5 +1,19 @@
-// public/sdk.js
-(function (global) {
+(function (root, factory) {
+  const api = factory(root);
+
+  if (typeof module === "object" && module.exports) {
+    module.exports = api;
+    module.exports.default = api;
+    module.exports.create = api.create;
+    module.exports.createSdk = api.createSdk;
+    module.exports.initUxSdk = api.initUxSdk;
+    module.exports.DEFAULTS = api.DEFAULTS;
+  }
+
+  if (root && typeof root === "object") {
+    root.MiniSDK = api;
+  }
+})(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this), function (global) {
   "use strict";
 
   const DEFAULTS = {
@@ -12,28 +26,42 @@
     maxBatchSize: 20,
     sessionTtlMs: 30 * 60 * 1000,
     clickSelector: "[data-track-id]",
-    debug: false
+    debug: false,
+    sdkBaseUrl: ""
   };
 
   const LS_USER = "sdk_anon_user_id_v1";
-  const LS_SESSION = "sdk_session_v1"; // {id, lastActive}
-  const LS_BUCKET_PREFIX = "sdk_bucket_"; // sdk_bucket_<siteId>_<expKey> = "A"|"B"
-  const LS_VARIANT = "ab_variant_v1"; // (기존 샘플용) 있으면 참고만
+  const LS_SESSION = "sdk_session_v1";
+  const LS_BUCKET_PREFIX = "sdk_bucket_";
+  const LS_VARIANT = "ab_variant_v1";
 
   function now() { return Date.now(); }
   function randId(prefix) { return `${prefix}_${Math.random().toString(16).slice(2)}_${now().toString(16)}`; }
   function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
+  function getStorage() { return global.localStorage; }
+  function getDocument() { return global.document; }
+  function getLocation() { return global.location; }
+  function getNavigator() { return global.navigator; }
+  function getWindow() { return global.window || global; }
+  function joinUrl(baseUrl, path) {
+    const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+    if (!base) return path;
+    if (/^https?:\/\//i.test(String(path || ""))) return String(path);
+    return `${base}${String(path || "")}`;
+  }
 
   function getAnonUserId() {
-    const existing = localStorage.getItem(LS_USER);
+    const storage = getStorage();
+    const existing = storage.getItem(LS_USER);
     if (existing && existing.length > 6) return existing;
     const id = randId("u");
-    localStorage.setItem(LS_USER, id);
+    storage.setItem(LS_USER, id);
     return id;
   }
 
   function getOrRefreshSessionId(sessionTtlMs) {
-    const raw = localStorage.getItem(LS_SESSION);
+    const storage = getStorage();
+    const raw = storage.getItem(LS_SESSION);
     const obj = raw ? safeJsonParse(raw) : null;
     const t = now();
 
@@ -41,19 +69,17 @@
       const inactive = t - obj.lastActive;
       if (inactive <= sessionTtlMs) {
         obj.lastActive = t;
-        localStorage.setItem(LS_SESSION, JSON.stringify(obj));
+        storage.setItem(LS_SESSION, JSON.stringify(obj));
         return obj.id;
       }
     }
 
     const s = { id: randId("s"), lastActive: t };
-    localStorage.setItem(LS_SESSION, JSON.stringify(s));
+    storage.setItem(LS_SESSION, JSON.stringify(s));
     return s.id;
   }
 
-  // --------- A/B bucket ----------
   function fnv1a32(str) {
-    // simple stable hash
     let h = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
       h ^= str.charCodeAt(i);
@@ -66,56 +92,46 @@
     return `${LS_BUCKET_PREFIX}${siteId}_${expKey}`;
   }
 
-  // ✅ 추가: query로 강제/모드 제어
-function getAbMode() {
-  const sp = new URLSearchParams(location.search);
-  // __ab_mode=per_load  -> 새로고침마다 랜덤
-  // __ab_mode=sticky    -> 기존처럼 고정
-  return sp.get("__ab_mode") || "per_load"; // ✅ 기본을 per_load로!
-}
-
-function getAbForce() {
-  const sp = new URLSearchParams(location.search);
-  // __ab_force=A 또는 __ab_force=B
-  const v = sp.get("__ab_force");
-  return (v === "A" || v === "B") ? v : null;
-}
-
-// ✅ 교체: 기존 decideVariant()를 아래로 바꿔
-function decideVariant(siteId, expKey, traffic, anonUserId) {
-  const force = getAbForce();
-  if (force) return force;
-
-  const mode = getAbMode();
-  const aPct = Math.max(0, Math.min(100, Number(traffic?.A ?? 50)));
-
-  // ✅ per_load: 매 로드마다 랜덤
-  if (mode === "per_load") {
-    const bucket = Math.floor(Math.random() * 100);
-    return bucket < aPct ? "A" : "B";
+  function getAbMode() {
+    const sp = new URLSearchParams(getLocation().search);
+    return sp.get("__ab_mode") || "per_load";
   }
 
-  // ✅ sticky: (원하면 유지) 기존처럼 유저 고정
-  const k = getBucketKey(siteId, expKey);
-  const existing = localStorage.getItem(k);
-  if (existing === "A" || existing === "B") return existing;
+  function getAbForce() {
+    const sp = new URLSearchParams(getLocation().search);
+    const v = sp.get("__ab_force");
+    return (v === "A" || v === "B") ? v : null;
+  }
 
-  const seed = `${siteId}|${expKey}|${anonUserId}`;
-  const bucket = fnv1a32(seed) % 100;
+  function decideVariant(siteId, expKey, traffic, anonUserId) {
+    const force = getAbForce();
+    if (force) return force;
 
-  const v = bucket < aPct ? "A" : "B";
-  localStorage.setItem(k, v);
-  return v;
-}
+    const mode = getAbMode();
+    const aPct = Math.max(0, Math.min(100, Number(traffic?.A ?? 50)));
+    if (mode === "per_load") {
+      const bucket = Math.floor(Math.random() * 100);
+      return bucket < aPct ? "A" : "B";
+    }
 
-  // --------- Change apply engine ----------
+    const storage = getStorage();
+    const k = getBucketKey(siteId, expKey);
+    const existing = storage.getItem(k);
+    if (existing === "A" || existing === "B") return existing;
+
+    const seed = `${siteId}|${expKey}|${anonUserId}`;
+    const bucket = fnv1a32(seed) % 100;
+    const v = bucket < aPct ? "A" : "B";
+    storage.setItem(k, v);
+    return v;
+  }
+
   function qsaSafe(selector) {
-    try { return Array.from(document.querySelectorAll(selector)); } catch { return []; }
+    try { return Array.from(getDocument().querySelectorAll(selector)); } catch { return []; }
   }
 
   function applyOneChange(change, injectedStyleEl) {
     if (!change) return;
-
     if (change.type === "inject_css") {
       injectedStyleEl.textContent += "\n" + String(change.css || "");
       return;
@@ -162,21 +178,19 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
     const list = Array.isArray(changes) ? changes : [];
     if (list.length === 0) return;
 
-    // CSS injection style holder
-    let styleEl = document.getElementById("__sdk_injected_css__");
+    const doc = getDocument();
+    let styleEl = doc.getElementById("__sdk_injected_css__");
     if (!styleEl) {
-      styleEl = document.createElement("style");
+      styleEl = doc.createElement("style");
       styleEl.id = "__sdk_injected_css__";
-      document.documentElement.appendChild(styleEl);
+      doc.documentElement.appendChild(styleEl);
     }
-    styleEl.textContent = ""; // reapply fresh
+    styleEl.textContent = "";
 
-    // 1차 적용
     list.forEach((c) => applyOneChange(c, styleEl));
 
-    // SPA/late DOM 대응: MutationObserver로 몇 번 더 재시도
     let tries = 0;
-    const maxTries = 20; // 과도 방지
+    const maxTries = 20;
     const obs = new MutationObserver(() => {
       tries++;
       list.forEach((c) => applyOneChange(c, styleEl));
@@ -186,40 +200,44 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
       }
     });
 
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => { try { obs.disconnect(); } catch {} }, 5000); // 5초 후 정리
+    obs.observe(doc.documentElement, { childList: true, subtree: true });
+    setTimeout(() => { try { obs.disconnect(); } catch {} }, 5000);
   }
 
-  // --------- SDK ----------
   function createSdk(userConfig) {
     const config = { ...DEFAULTS, ...(userConfig || {}) };
+    config.endpoint = joinUrl(config.sdkBaseUrl, config.endpoint);
+    config.configEndpoint = joinUrl(config.sdkBaseUrl, config.configEndpoint);
 
     let queue = [];
     let flushTimer = null;
     let pageStartTs = now();
-    let assignedExperiments = []; // [{key, variant, version}]
+    let assignedExperiments = [];
 
     function log(...args) {
       if (config.debug) console.log("[SDK]", ...args);
     }
 
     function getBaseContext() {
+      const doc = getDocument();
+      const loc = getLocation();
+      const nav = getNavigator();
+      const win = getWindow();
       return {
         schema_version: config.schemaVersion,
         app_id: config.appId,
         site_id: config.siteId,
         ts: now(),
-        url: location.href,
-        path: location.pathname,
-        referrer: document.referrer || null,
-        user_agent: navigator.userAgent,
-        lang: navigator.language,
-        screen: { w: window.screen?.width, h: window.screen?.height },
-        viewport: { w: window.innerWidth, h: window.innerHeight },
+        url: loc.href,
+        path: loc.pathname,
+        referrer: doc.referrer || null,
+        user_agent: nav.userAgent,
+        lang: nav.language,
+        screen: { w: win.screen?.width, h: win.screen?.height },
+        viewport: { w: win.innerWidth, h: win.innerHeight },
         anon_user_id: getAnonUserId(),
         session_id: getOrRefreshSessionId(config.sessionTtlMs),
-        // legacy: 샘플에서 쓰던 variant가 있으면 참고(없어도 됨)
-        ui_variant: (localStorage.getItem(LS_VARIANT) || "U"),
+        ui_variant: (getStorage().getItem(LS_VARIANT) || "U"),
         experiments: assignedExperiments
       };
     }
@@ -231,11 +249,12 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
     }
 
     function sendPayload(payload) {
+      const nav = getNavigator();
       const body = JSON.stringify(payload);
 
-      if (navigator.sendBeacon) {
+      if (nav.sendBeacon) {
         const blob = new Blob([body], { type: "application/json" });
-        const ok = navigator.sendBeacon(config.endpoint, blob);
+        const ok = nav.sendBeacon(config.endpoint, blob);
         log("sendBeacon", ok, payload.events?.length);
         return ok;
       }
@@ -261,7 +280,7 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
     }
 
     function trackPageView(extraProps) {
-      enqueue("page_view", { title: document.title, ...(extraProps || {}) });
+      enqueue("page_view", { title: getDocument().title, ...(extraProps || {}) });
     }
 
     function pickElementInfo(el) {
@@ -274,21 +293,14 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
         aria_label: el.getAttribute("aria-label") || null,
         id: el.id || null,
         class: (el.className || "").toString().slice(0, 120) || null,
-        rect: rect ? {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          w: Math.round(rect.width),
-          h: Math.round(rect.height)
-        } : null
+        rect: rect ? { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) } : null
       };
     }
 
     function trackClick(e) {
       const target = e.target?.closest?.(config.clickSelector);
       if (!target) return;
-
       getOrRefreshSessionId(config.sessionTtlMs);
-
       enqueue("click", {
         ...pickElementInfo(target),
         x: typeof e.clientX === "number" ? Math.round(e.clientX) : null,
@@ -298,28 +310,27 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
 
     function trackDwell(reason) {
       const dwellMs = Math.max(0, now() - pageStartTs);
-      enqueue("dwell_time", { dwell_ms: dwellMs, reason: reason || "unknown", title: document.title });
+      enqueue("dwell_time", { dwell_ms: dwellMs, reason: reason || "unknown", title: getDocument().title });
       flush();
     }
 
     async function fetchAndApplyConfig() {
       const anon = getAnonUserId();
-      const url = encodeURIComponent(location.href);
+      const loc = getLocation();
+      const url = encodeURIComponent(loc.href);
       const ep = `${config.configEndpoint}?site_id=${encodeURIComponent(config.siteId)}&url=${url}`;
 
       try {
-        const r = await fetch(ep, { method: "GET", headers: { "accept": "application/json" } });
+        const r = await fetch(ep, { method: "GET", headers: { accept: "application/json" } });
         const j = await r.json();
         if (!j?.ok) return;
 
         const exps = Array.isArray(j.experiments) ? j.experiments : [];
-
         assignedExperiments = exps.map((exp) => {
           const v = decideVariant(config.siteId, exp.key, exp.traffic, anon);
           return { key: exp.key, variant: v, version: exp.version };
         });
 
-        // Apply B changes only (A는 원본)
         exps.forEach((exp) => {
           const assigned = assignedExperiments.find((x) => x.key === exp.key);
           const v = assigned?.variant || "A";
@@ -330,37 +341,28 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
           }
         });
 
-        // config 적용 이벤트(디버깅/대시보드용)
         enqueue("ab_config_applied", { experiments: assignedExperiments, pathname: j.pathname });
         flush();
       } catch (e) {
         log("config fetch error", e);
       }
+
       try {
-  document.documentElement.setAttribute(
-    "data-ab",
-    assignedExperiments.map(x => `${x.key}:${x.variant}`).join(",")
-  );
-  console.log("[AB]", document.documentElement.getAttribute("data-ab"));
-} catch {}
+        getDocument().documentElement.setAttribute("data-ab", assignedExperiments.map((x) => `${x.key}:${x.variant}`).join(","));
+      } catch {}
     }
 
     function install() {
       pageStartTs = now();
-
-      // 1) config 먼저 받아서 적용 (가능하면 page_view 전에)
       fetchAndApplyConfig().finally(() => {
         trackPageView({ reason: "load" });
       });
-
-      document.addEventListener("click", trackClick, { capture: true });
-
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") trackDwell("hidden");
+      getDocument().addEventListener("click", trackClick, { capture: true });
+      getDocument().addEventListener("visibilitychange", () => {
+        if (getDocument().visibilityState === "hidden") trackDwell("hidden");
       });
-      window.addEventListener("pagehide", () => trackDwell("pagehide"));
-      window.addEventListener("beforeunload", () => trackDwell("beforeunload"));
-
+      getWindow().addEventListener("pagehide", () => trackDwell("pagehide"));
+      getWindow().addEventListener("beforeunload", () => trackDwell("beforeunload"));
       startAutoFlush();
       log("installed");
     }
@@ -368,5 +370,16 @@ function decideVariant(siteId, expKey, traffic, anonUserId) {
     return { install, flush, track: enqueue, trackPageView };
   }
 
-  global.MiniSDK = { create: createSdk };
-})(window);
+  function initUxSdk(userConfig) {
+    const sdk = createSdk(userConfig);
+    sdk.install();
+    return sdk;
+  }
+
+  return {
+    DEFAULTS,
+    create: createSdk,
+    createSdk,
+    initUxSdk,
+  };
+});

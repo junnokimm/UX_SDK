@@ -56,6 +56,10 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: "5mb" }));
+const SDK_PACKAGE_DIR = path.join(__dirname, "packages", "browser-sdk");
+const SDK_PACKAGE_META = require(path.join(SDK_PACKAGE_DIR, "package.json"));
+const SDK_PACKAGE_FILE = path.join(SDK_PACKAGE_DIR, SDK_PACKAGE_META.main);
+app.get("/sdk.js", (req, res) => res.sendFile(SDK_PACKAGE_FILE));
 app.use(express.static(path.join(__dirname, "public")));
 
 // pages
