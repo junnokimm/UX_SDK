@@ -1,0 +1,19 @@
+{
+  "name": "@legend/ux-sdk",
+  "version": "0.1.0",
+  "description": "Installable browser SDK for Legend UX analytics and experiments",
+  "type": "commonjs",
+  "main": "./src/sdk.js",
+  "exports": {
+    ".": {
+      "require": "./src/sdk.js",
+      "import": "./src/index.mjs"
+    },
+    "./browser": "./src/sdk.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT"
+}
