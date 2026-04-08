@@ -6,6 +6,10 @@ const crypto = require("crypto");
 const { ensureJsonFile, ensureJsonlFile } = require("./services/data-store");
 const { createChatRoutes } = require("./routes/chat-routes");
 const { loadEnvFromFile } = require("./services/llm/config");
+const { createFileEventStore } = require("./services/stores/event-store");
+const { createFileExperimentStore } = require("./services/stores/experiment-store");
+const { createFileSiteRegistryStore } = require("./services/stores/site-registry-store");
+const { createMetricsReadModel } = require("./services/read-models/metrics-read-model");
 
 const {
   computeLabeledSessionSummaries,
@@ -13,6 +17,11 @@ const {
   buildInsightsInput
 } = require("./analytics/pipeline");
 const { generateInsights } = require("./insights/generator");
+const {
+  VALID_EXPERIMENT_STATUSES,
+  normalizeExperimentStatus,
+  canTransitionExperimentStatus,
+} = require("./services/analytics/experiment-status");
 
 loadEnvFromFile();
 
@@ -215,13 +224,6 @@ ensureJsonFile(CHAT_FEEDBACK_FILE, { feedback: [] });
 ensureJsonlFile(CHAT_EVENTS_FILE);
 
 // ---------- utils ----------
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); }
-  catch { return null; }
-}
-function writeJson(file, obj) {
-  fs.writeFileSync(file, JSON.stringify(obj, null, 2), "utf8");
-}
 function now() { return Date.now(); }
 function rid() { return crypto.randomBytes(8).toString("hex"); }
 function safeAbsoluteUrl(baseUrl, value) {
@@ -231,9 +233,10 @@ function safeAbsoluteUrl(baseUrl, value) {
     return new URL("/", baseUrl).toString();
   }
 }
-function loadSitesDb() {
-  return readJson(SITES_FILE) || { sites: [] };
-}
+const eventStore = createFileEventStore({ eventsFile: EVENTS_FILE });
+const experimentStore = createFileExperimentStore({ experimentsFile: EXP_FILE });
+const siteRegistryStore = createFileSiteRegistryStore({ sitesFile: SITES_FILE });
+const metricsReadModel = createMetricsReadModel({ eventStore, experimentStore });
 function slugify(value) {
   return String(value || "")
     .toLowerCase()
@@ -524,7 +527,7 @@ function normalizeSite(site) {
   };
 }
 function listSites() {
-  return (loadSitesDb().sites || []).map(normalizeSite).filter(Boolean);
+  return siteRegistryStore.listRaw().map(normalizeSite).filter(Boolean);
 }
 function getSiteById(siteId) {
   return listSites().find((site) => site.site_id === siteId) || null;
@@ -541,11 +544,8 @@ function shouldRefreshInferredTargets(site) {
 }
 async function ensureSiteInference(siteId, options) {
   const force = Boolean(options?.force);
-  const db = loadSitesDb();
-  const idx = (db.sites || []).findIndex((site) => String(site?.site_id || "").trim() === siteId);
-  if (idx < 0) return null;
-
-  const rawSite = db.sites[idx];
+  const rawSite = siteRegistryStore.getRawById(siteId);
+  if (!rawSite) return null;
   if (!rawSite?.target_generation || rawSite.target_generation.mode === "manual") {
     return normalizeSite(rawSite);
   }
@@ -555,16 +555,16 @@ async function ensureSiteInference(siteId, options) {
   }
 
   const inferredTargets = await inferPreviewTargets(rawSite);
-  rawSite.inferred_preview_targets = inferredTargets;
-  rawSite.inferred_targets_updated_at = Date.now();
-  db.sites[idx] = rawSite;
-  writeJson(SITES_FILE, db);
-  return normalizeSite(rawSite);
+  const next = siteRegistryStore.patchRawById(siteId, (current) => ({
+    ...current,
+    inferred_preview_targets: inferredTargets,
+    inferred_targets_updated_at: Date.now(),
+  }));
+  return normalizeSite(next);
 }
 async function listSitesForApi() {
-  const db = loadSitesDb();
   const sites = [];
-  for (const site of db.sites || []) {
+  for (const site of siteRegistryStore.listRaw()) {
     const siteId = String(site?.site_id || "").trim();
     if (!siteId) continue;
     const normalized = await ensureSiteInference(siteId, { force: false });
@@ -622,14 +622,7 @@ app.post("/collect", (req, res) => {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   if (events.length === 0) return res.status(400).json({ ok: false, reason: "no events" });
 
-  const received_at = Date.now();
-  const request_id = rid();
-
-  const lines = events.map((e) =>
-    JSON.stringify({ ...e, received_at, request_id })
-  );
-
-  fs.appendFileSync(EVENTS_FILE, lines.join("\n") + "\n", "utf8");
+  eventStore.appendBatch(events, { received_at: Date.now(), request_id: rid() });
   console.log("✅ collect:", events[events.length - 1]?.event_name, "count=", events.length);
 
   return res.json({ ok: true, received: events.length });
@@ -740,13 +733,6 @@ app.all("/preview-api/:siteId/*", proxyPreviewApiRequest);
 // ---------- Experiment API (MVP) ----------
 // experiment = { id, site_id, key, status:"draft"|"running"|"paused", url_prefix, traffic, variants, goals, updated_at, published_at, version }
 
-function loadDb() {
-  return readJson(EXP_FILE) || { experiments: [] };
-}
-function saveDb(db) {
-  writeJson(EXP_FILE, db);
-}
-
 app.post("/api/experiments/real-apply", (req, res) => {
   const {
     site_id = "ab-sample",
@@ -761,11 +747,10 @@ app.post("/api/experiments/real-apply", (req, res) => {
     return res.status(400).json({ ok: false, reason: "missing key/url_prefix/variants" });
   }
 
-  const db = loadDb();
-  const idx = db.experiments.findIndex((x) => x.site_id === site_id && x.key === key);
+  const existing = experimentStore.getByKey(site_id, key);
 
   const base = {
-    id: idx >= 0 ? db.experiments[idx].id : rid(),
+    id: existing?.id || rid(),
     site_id,
     key,
     url_prefix,
@@ -775,47 +760,53 @@ app.post("/api/experiments/real-apply", (req, res) => {
     status: "running",
     updated_at: now(),
     published_at: now(),
-    version: idx >= 0 ? (db.experiments[idx].version || 0) + 1 : 1
+    archived_at: null,
+    version: existing ? (existing.version || 0) + 1 : 1
   };
 
-  if (idx >= 0) db.experiments[idx] = base;
-  else db.experiments.push(base);
-
-  saveDb(db);
+  experimentStore.upsert(base, (item) => item.site_id === site_id && item.key === key);
   return res.json({ ok: true, experiment: base });
 });
 
 // list
 app.get("/api/experiments", (req, res) => {
   const site_id = req.query.site_id || "ab-sample";
-  const db = loadDb();
-  const list = db.experiments
-    .filter((x) => x.site_id === site_id)
-    .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+  const list = experimentStore.list(site_id);
   return res.json({ ok: true, experiments: list });
 });
 
 // update status
 app.patch("/api/experiments/:id", (req, res) => {
   const { id } = req.params;
-  const { status } = req.body || {};
+  const status = normalizeExperimentStatus(req.body?.status, "");
   const site_id = String(req.body?.site_id || req.query.site_id || "").trim();
-  if (!["running", "paused"].includes(status)) {
-    return res.status(400).json({ ok: false, reason: "status must be running|paused" });
+  if (!VALID_EXPERIMENT_STATUSES.includes(status)) {
+    return res.status(400).json({ ok: false, reason: "invalid experiment status" });
   }
   if (!site_id) {
     return res.status(400).json({ ok: false, reason: "missing site_id" });
   }
 
-  const db = loadDb();
-  const idx = db.experiments.findIndex((x) => x.id === id && x.site_id === site_id);
-  if (idx < 0) return res.status(404).json({ ok: false, reason: "not found" });
+  const current = experimentStore.getById(site_id, id);
+  if (!current) return res.status(404).json({ ok: false, reason: "not found" });
 
-  db.experiments[idx].status = status;
-  db.experiments[idx].updated_at = now();
-  saveDb(db);
+  const currentStatus = normalizeExperimentStatus(current.status);
+  if (!canTransitionExperimentStatus(currentStatus, status)) {
+    return res.status(400).json({ ok: false, reason: `invalid transition: ${currentStatus} -> ${status}` });
+  }
 
-  return res.json({ ok: true, experiment: db.experiments[idx] });
+  const updated = experimentStore.patchById(site_id, id, (experiment) => {
+    const next = {
+      ...experiment,
+      status,
+      updated_at: now(),
+    };
+    if (status === "running" && !next.published_at) next.published_at = next.updated_at;
+    if (status === "archived") next.archived_at = next.updated_at;
+    return next;
+  });
+
+  return res.json({ ok: true, experiment: updated });
 });
 
 // delete
@@ -825,11 +816,8 @@ app.delete("/api/experiments/:id", (req, res) => {
   if (!site_id) {
     return res.status(400).json({ ok: false, reason: "missing site_id" });
   }
-  const db = loadDb();
-  const before = db.experiments.length;
-  db.experiments = db.experiments.filter((x) => !(x.id === id && x.site_id === site_id));
-  if (db.experiments.length === before) return res.status(404).json({ ok: false, reason: "not found" });
-  saveDb(db);
+  const deleted = experimentStore.deleteById(site_id, id);
+  if (!deleted) return res.status(404).json({ ok: false, reason: "not found" });
   return res.json({ ok: true });
 });
 
@@ -841,8 +829,7 @@ app.get("/api/config", (req, res) => {
     try { return new URL(url).pathname; } catch { return url || "/"; }
   })();
 
-  const db = loadDb();
-  const running = db.experiments
+  const running = experimentStore.list(site_id)
     .filter((x) => x.site_id === site_id && x.status === "running")
     .filter((x) => pathname.startsWith(x.url_prefix))
     .map((x) => ({
@@ -871,130 +858,10 @@ app.get("/api/metrics", (req, res) => {
   const site_id = req.query.site_id || "ab-sample";
   const key = String(req.query.key || "");
   if (!key) return res.status(400).json({ ok: false, reason: "missing key" });
-
-  const db = loadDb();
-  const exp = db.experiments.find((x) => x.site_id === site_id && x.key === key);
-  if (!exp) return res.status(404).json({ ok: false, reason: "experiment not found" });
-
-  const goals = Array.isArray(exp.goals) && exp.goals.length ? exp.goals : ["checkout_complete"];
-
-  const lines = fs.existsSync(EVENTS_FILE) ? fs.readFileSync(EVENTS_FILE, "utf8").split("\n") : [];
-  const events = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const e = safeParseJsonLine(line);
-    if (!e) continue;
-    if (e.site_id !== site_id) continue;
-
-    // experiments 메타 안에 해당 key가 있는 이벤트만
-    const exps = Array.isArray(e.experiments) ? e.experiments : [];
-    const hit = exps.find((x) => x && x.key === key);
-    if (!hit) continue;
-
-    events.push({
-      event_name: e.event_name,
-      anon_user_id: e.anon_user_id,
-      session_id: e.session_id,
-      path: e.path,
-      props: e.props || {},
-      exp_variant: hit.variant || "A"
-    });
+  const out = metricsReadModel.getExperimentMetrics({ siteId: site_id, key });
+  if (!out.ok && out.reason === "experiment not found") {
+    return res.status(404).json(out);
   }
-
-  function initVariant() {
-    return {
-      users: new Set(),
-      sessions: new Set(),
-      page_views: 0,
-      clicks: 0,
-      conversions: 0,
-      // session -> {pageViews, totalEvents}
-      sessionStats: new Map(),
-      // element_id -> count
-      clickElements: new Map()
-    };
-  }
-
-  const byV = { A: initVariant(), B: initVariant() };
-
-  for (const e of events) {
-    const v = e.exp_variant === "B" ? "B" : "A";
-    const b = byV[v];
-
-    if (e.anon_user_id) b.users.add(e.anon_user_id);
-    if (e.session_id) b.sessions.add(e.session_id);
-
-    const sid = e.session_id || "no_session";
-    if (!b.sessionStats.has(sid)) b.sessionStats.set(sid, { pageViews: 0, totalEvents: 0 });
-    const st = b.sessionStats.get(sid);
-    st.totalEvents++;
-
-    if (e.event_name === "page_view") {
-      b.page_views++;
-      st.pageViews++;
-    }
-
-    if (e.event_name === "click") {
-      b.clicks++;
-      const elid = e.props?.element_id || "(no_element_id)";
-      b.clickElements.set(elid, (b.clickElements.get(elid) || 0) + 1);
-    }
-
-    if (goals.includes(e.event_name)) {
-      b.conversions++;
-    }
-  }
-
-  function finalize(bucket) {
-    const sessions = bucket.sessions.size;
-    const users = bucket.users.size;
-
-    // bounce: session에서 page_view 1회이고 totalEvents 1(=page_view만)인 경우
-    let bounces = 0;
-    for (const st of bucket.sessionStats.values()) {
-      if (st.pageViews === 1 && st.totalEvents === 1) bounces++;
-    }
-    const bounce_rate = sessions > 0 ? bounces / sessions : 0;
-
-    const cvr = sessions > 0 ? bucket.conversions / sessions : 0;
-    const ctr = bucket.page_views > 0 ? bucket.clicks / bucket.page_views : 0;
-
-    // top clicked
-    const top_clicked_elements = Array.from(bucket.clickElements.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([element_id, count]) => ({ element_id, count }));
-
-    return {
-      users,
-      sessions,
-      page_views: bucket.page_views,
-      clicks: bucket.clicks,
-      conversions: bucket.conversions,
-      cvr,
-      ctr,
-      bounce_rate,
-      top_clicked_elements
-    };
-  }
-
-  const out = {
-    ok: true,
-    site_id,
-    key,
-    goals,
-    experiment: {
-      id: exp.id,
-      status: exp.status,
-      url_prefix: exp.url_prefix,
-      version: exp.version,
-      published_at: exp.published_at
-    },
-    A: finalize(byV.A),
-    B: finalize(byV.B),
-    totals: { events: events.length }
-  };
-
   return res.json(out);
 });
 

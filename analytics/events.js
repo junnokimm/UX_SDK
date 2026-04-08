@@ -21,6 +21,8 @@ function normalizeEvent(e) {
   if (typeof t !== "number") return null;
 
   return {
+    schema_version: typeof e.schema_version === "number" ? e.schema_version : null,
+    app_id: typeof e.app_id === "string" ? e.app_id : "",
     // identity
     site_id: typeof e.site_id === "string" ? e.site_id : "",
     anon_user_id: typeof e.anon_user_id === "string" ? e.anon_user_id : "",
@@ -37,6 +39,10 @@ function normalizeEvent(e) {
     path: typeof e.path === "string" ? e.path : "",
     referrer: typeof e.referrer === "string" ? e.referrer : null,
     user_agent: typeof e.user_agent === "string" ? e.user_agent : "",
+    lang: typeof e.lang === "string" ? e.lang : null,
+    screen: e.screen && typeof e.screen === "object" ? e.screen : null,
+    viewport: e.viewport && typeof e.viewport === "object" ? e.viewport : null,
+    ui_variant: typeof e.ui_variant === "string" ? e.ui_variant : null,
 
     // experiments
     experiments: Array.isArray(e.experiments) ? e.experiments.filter(Boolean) : [],

@@ -56,12 +56,14 @@ function isPaymentAttempt(e) {
 }
 
 function isCartAdd(e) {
+  if (e?.event_name === "add_to_cart") return true;
   if (!isClick(e)) return false;
   const elid = String(e.props?.element_id || "").toLowerCase();
   return elid.includes("add_to_cart") || elid.includes("cart_add");
 }
 
 function isCartRemove(e) {
+  if (e?.event_name === "remove_from_cart") return true;
   if (!isClick(e)) return false;
   const elid = String(e.props?.element_id || "").toLowerCase();
   return elid.includes("remove_from_cart") || elid.includes("cart_remove");
@@ -143,6 +145,7 @@ function summarizeSession(session, opts) {
     if (isPaymentAttempt(e)) payment_attempt_count++;
 
     if (e.event_name === "checkout_complete") checkout_complete = true;
+    if (e.event_name === "checkout_start") checkout_entered = true;
 
     const step = inferStepFromEvent(e);
     steps.push(step);

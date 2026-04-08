@@ -1,8 +1,10 @@
-const { readJsonl } = require("../data-store");
+const { createFileEventStore } = require("../stores/event-store");
 
-function createEventsService({ eventsFile }) {
+function createEventsService({ eventsFile, eventStore }) {
+  const resolvedEventStore = eventStore || createFileEventStore({ eventsFile });
+
   function getEventSummary({ siteId, page }) {
-    const events = readJsonl(eventsFile).filter((e) => e.site_id === siteId);
+    const events = resolvedEventStore.readAll().filter((e) => e.site_id === siteId);
     const filtered = page ? events.filter((e) => (e.path || "").startsWith(page)) : events;
 
     const pageViews = new Map();

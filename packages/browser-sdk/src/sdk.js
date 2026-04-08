@@ -26,6 +26,7 @@
     maxBatchSize: 20,
     sessionTtlMs: 30 * 60 * 1000,
     clickSelector: "[data-track-id]",
+    abAssignmentMode: "sticky",
     debug: false,
     sdkBaseUrl: ""
   };
@@ -92,9 +93,9 @@
     return `${LS_BUCKET_PREFIX}${siteId}_${expKey}`;
   }
 
-  function getAbMode() {
+  function getAbMode(config) {
     const sp = new URLSearchParams(getLocation().search);
-    return sp.get("__ab_mode") || "per_load";
+    return sp.get("__ab_mode") || config.abAssignmentMode || "sticky";
   }
 
   function getAbForce() {
@@ -103,11 +104,11 @@
     return (v === "A" || v === "B") ? v : null;
   }
 
-  function decideVariant(siteId, expKey, traffic, anonUserId) {
+  function decideVariant(siteId, expKey, traffic, anonUserId, config) {
     const force = getAbForce();
     if (force) return force;
 
-    const mode = getAbMode();
+    const mode = getAbMode(config);
     const aPct = Math.max(0, Math.min(100, Number(traffic?.A ?? 50)));
     if (mode === "per_load") {
       const bucket = Math.floor(Math.random() * 100);
@@ -124,6 +125,24 @@
     const v = bucket < aPct ? "A" : "B";
     storage.setItem(k, v);
     return v;
+  }
+
+  function includesToken(source, tokens) {
+    return tokens.some((token) => source.includes(token));
+  }
+
+  function inferSemanticEvents(elementInfo) {
+    const elementId = String(elementInfo?.element_id || "").trim().toLowerCase();
+    if (!elementId) return [];
+
+    const names = [];
+    if (includesToken(elementId, ["add_to_cart", "cart_add"])) names.push("add_to_cart");
+    if (includesToken(elementId, ["remove_from_cart", "cart_remove"])) names.push("remove_from_cart");
+    if (includesToken(elementId, ["checkout_start", "start_checkout", "begin_checkout", "cart_checkout"])) names.push("checkout_start");
+    if (elementId === "pay" || includesToken(elementId, ["pay_btn", "payment"])) names.push("payment_attempt");
+    if (includesToken(elementId, ["search"])) names.push("search");
+    if (includesToken(elementId, ["filter", "sort"])) names.push("filter_change");
+    return Array.from(new Set(names));
   }
 
   function qsaSafe(selector) {
@@ -301,10 +320,15 @@
       const target = e.target?.closest?.(config.clickSelector);
       if (!target) return;
       getOrRefreshSessionId(config.sessionTtlMs);
-      enqueue("click", {
-        ...pickElementInfo(target),
+      const elementInfo = pickElementInfo(target);
+      const baseProps = {
+        ...elementInfo,
         x: typeof e.clientX === "number" ? Math.round(e.clientX) : null,
         y: typeof e.clientY === "number" ? Math.round(e.clientY) : null
+      };
+      enqueue("click", baseProps);
+      inferSemanticEvents(elementInfo).forEach((eventName) => {
+        enqueue(eventName, { ...baseProps, source_event: "click" });
       });
     }
 
@@ -327,7 +351,7 @@
 
         const exps = Array.isArray(j.experiments) ? j.experiments : [];
         assignedExperiments = exps.map((exp) => {
-          const v = decideVariant(config.siteId, exp.key, exp.traffic, anon);
+          const v = decideVariant(config.siteId, exp.key, exp.traffic, anon, config);
           return { key: exp.key, variant: v, version: exp.version };
         });
 

@@ -501,7 +501,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
   }
 
   function badge(status) {
-    const cls = status === "running" ? "running" : status === "draft" ? "draft" : "paused";
+    const cls = status === "running" ? "running" : status === "draft" ? "draft" : status === "archived" ? "label" : "paused";
     return `<span class="badge ${cls}">${status}</span>`;
   }
 
@@ -515,7 +515,12 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
       ? `<button class="btn danger" data-act="pause" data-id="${exp.id}">Pause</button>`
       : status === "draft"
         ? `<button class="btn" data-act="edit-draft" data-id="${exp.id}" data-key="${key}">Edit Draft</button>`
-        : `<button class="btn good" data-act="run" data-id="${exp.id}">Run</button>`;
+        : status === "archived"
+          ? `<span class="muted">Archived</span>`
+          : `<button class="btn good" data-act="run" data-id="${exp.id}">Run</button>`;
+    const archiveBtn = status === "draft" || status === "paused"
+      ? `<button class="btn danger" data-act="archive" data-id="${exp.id}">Archive</button>`
+      : "";
     const metricsBtn = status === "draft"
       ? `<button class="btn" data-act="edit-draft" data-id="${exp.id}" data-key="${key}">Open In Editor</button>`
       : `<button class="btn" data-act="metrics" data-key="${key}">Metrics</button>`;
@@ -531,6 +536,7 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             ${metricsBtn}
             ${btnToggle}
+            ${archiveBtn}
             <a class="btn" href="${getEditorUrl()}" target="_blank" rel="noopener">Open Editor</a>
             <button class="btn danger" data-act="del" data-id="${exp.id}">Delete</button>
           </div>
@@ -585,6 +591,9 @@ events=${m.totals.events}  goals=${(m.goals||[]).join(", ")}`;
         await render();
       } else if (act === "run") {
         await setStatus(btn.dataset.id, "running");
+        await render();
+      } else if (act === "archive") {
+        await setStatus(btn.dataset.id, "archived");
         await render();
       } else if (act === "del") {
         if (!confirm("정말 삭제할까요?")) return;

@@ -10,16 +10,25 @@ const { createSupportService } = require("../services/commerce/support-service")
 const { createToolRegistry } = require("../services/chat/tool-registry");
 const { createChatOrchestrator } = require("../services/chat/chat-orchestrator");
 const { createLlmClient } = require("../services/llm");
+const { createFileExperimentStore } = require("../services/stores/experiment-store");
+const { createFileEventStore } = require("../services/stores/event-store");
+const { createMetricsReadModel } = require("../services/read-models/metrics-read-model");
 
 function createChatRoutes({ files }) {
   const router = express.Router();
+  const experimentStore = createFileExperimentStore({ experimentsFile: files.experimentsFile });
+  const eventStore = createFileEventStore({ eventsFile: files.eventsFile });
+  const metricsReadModel = createMetricsReadModel({ eventStore, experimentStore });
 
-  const experimentsService = createExperimentsService({ experimentsFile: files.experimentsFile });
+  const experimentsService = createExperimentsService({ experimentsFile: files.experimentsFile, experimentStore });
   const metricsService = createMetricsService({
     experimentsFile: files.experimentsFile,
     eventsFile: files.eventsFile,
+    eventStore,
+    experimentStore,
+    metricsReadModel,
   });
-  const eventsService = createEventsService({ eventsFile: files.eventsFile });
+  const eventsService = createEventsService({ eventsFile: files.eventsFile, eventStore });
   const conversationAnalyticsService = createConversationAnalyticsService({
     chatEventsFile: files.chatEventsFile,
     chatSessionsFile: files.chatSessionsFile,

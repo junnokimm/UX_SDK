@@ -27,6 +27,9 @@ function inferStepFromPath(pathname) {
 function inferStepFromEvent(e) {
   if (!e) return "browse";
   if (e.event_name === "checkout_complete") return "payment";
+  if (e.event_name === "checkout_start") return "checkout";
+  if (e.event_name === "payment_attempt") return "payment";
+  if (e.event_name === "add_to_cart" || e.event_name === "remove_from_cart") return "cart";
 
   if (e.event_name === "page_view") return inferStepFromPath(e.path);
 

@@ -1,20 +1,15 @@
-const { readJson, writeJson } = require("../data-store");
+const { createFileExperimentStore } = require("../stores/experiment-store");
+const { normalizeExperimentStatus } = require("./experiment-status");
 
-function createExperimentsService({ experimentsFile }) {
-  function loadDb() {
-    return readJson(experimentsFile, { experiments: [] }) || { experiments: [] };
-  }
+function createExperimentsService({ experimentsFile, experimentStore }) {
+  const store = experimentStore || createFileExperimentStore({ experimentsFile });
 
   function listExperiments(siteId) {
-    const db = loadDb();
-    return db.experiments
-      .filter((x) => x.site_id === siteId)
-      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+    return store.list(siteId);
   }
 
   function getByKey(siteId, key) {
-    const db = loadDb();
-    return db.experiments.find((x) => x.site_id === siteId && x.key === key) || null;
+    return store.getByKey(siteId, key);
   }
 
   function saveDraft({
@@ -27,16 +22,13 @@ function createExperimentsService({ experimentsFile }) {
     hypothesis,
     source,
   }) {
-    const db = loadDb();
-    const sameKeyRecords = db.experiments.filter((x) => x.site_id === siteId && x.key === key);
+    const sameKeyRecords = store.list(siteId).filter((x) => x.key === key);
     const liveRecord = sameKeyRecords.find(
-      (x) => x.status === "running" || x.status === "paused" || !!x.published_at
-    );
-    const existingDraftIndex = db.experiments.findIndex(
-      (x) => x.site_id === siteId && x.key === key && x.status === "draft" && !x.published_at
-    );
+      (x) => normalizeExperimentStatus(x.status) === "running" || normalizeExperimentStatus(x.status) === "paused"
+    ) || sameKeyRecords.find((x) => normalizeExperimentStatus(x.status) === "archived") || null;
+    const existingDraft = sameKeyRecords.find((x) => x.status === "draft" && !x.published_at) || null;
     const now = Date.now();
-    const existing = liveRecord || (existingDraftIndex >= 0 ? db.experiments[existingDraftIndex] : null);
+    const existing = liveRecord || existingDraft;
     const hasLiveRecord = !!liveRecord;
 
     const draftKey = hasLiveRecord ? `${key}__draft_${now}` : key;
@@ -54,14 +46,12 @@ function createExperimentsService({ experimentsFile }) {
       hypothesis: hypothesis || "",
       source: source || "chatbot",
       updated_at: now,
-      published_at: existing?.published_at || null,
+      published_at: null,
+      archived_at: null,
       version: existing ? (existing.version || 0) + 1 : 1,
     };
 
-    if (existingDraftIndex >= 0 && !hasLiveRecord) db.experiments[existingDraftIndex] = draft;
-    else db.experiments.push(draft);
-
-    writeJson(experimentsFile, db);
+    store.upsert(draft, (item) => item.id === draft.id && item.site_id === draft.site_id);
     return draft;
   }
 
