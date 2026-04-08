@@ -17,6 +17,7 @@ const { createMetricsReadModel } = require("./services/read-models/metrics-read-
 const { getInfraConfig } = require("./services/runtime/infra-config");
 const { createKafkaRuntime } = require("./services/runtime/kafka");
 const { createRedisRuntime } = require("./services/runtime/redis");
+const { createRedisSessionStore } = require("./services/stores/redis-session-store");
 
 const {
   computeLabeledSessionSummaries,
@@ -251,6 +252,13 @@ const kafkaRuntime = infraConfig.kafka.enabled
   : null;
 const redisRuntime = infraConfig.redis.enabled
   ? createRedisRuntime({ url: infraConfig.redis.url, keyPrefix: infraConfig.redis.keyPrefix })
+  : null;
+const redisSessionStore = redisRuntime
+  ? createRedisSessionStore({
+      redisRuntime,
+      sessionTtlSec: infraConfig.redis.sessionTtlSec,
+      assignmentTtlSec: infraConfig.redis.assignmentTtlSec,
+    })
   : null;
 const eventStore = kafkaRuntime
   ? createCompositeEventStore({
@@ -890,6 +898,22 @@ app.get("/api/metrics", (req, res) => {
   return res.json(out);
 });
 
+app.get("/api/realtime/sessions", async (req, res) => {
+  if (!redisSessionStore) {
+    return res.status(503).json({ ok: false, reason: "redis realtime session store disabled" });
+  }
+
+  const site_id = String(req.query.site_id || "ab-sample");
+  const limit = Math.max(1, Math.min(200, toInt(req.query.limit) ?? 50));
+
+  try {
+    const sessions = await redisSessionStore.listSessionStates({ siteId: site_id, limit });
+    return res.json({ ok: true, site_id, source: "redis", sessions });
+  } catch (error) {
+    return res.status(500).json({ ok: false, reason: String(error) });
+  }
+});
+
 // ---------- Sessions / Labels / Insights (UX-Stream v1) ----------
 // NOTE: 현재는 JSONL 기반 MVP. (대용량에서는 range query/DB/streaming 권장)
 
@@ -1005,6 +1029,7 @@ app.listen(PORT, () => {
   console.log(`🧠 redis session store: ${infraConfig.redis.enabled ? "enabled" : "disabled"}`);
   console.log(`📊 dashboard: http://localhost:${PORT}/dashboard`);
   console.log(`🧩 sessions api: http://localhost:${PORT}/api/sessions`);
+  console.log(`⚡ realtime sessions: http://localhost:${PORT}/api/realtime/sessions`);
   console.log(`🏷️  labels summary: http://localhost:${PORT}/api/labels/summary`);
   console.log(`💡 insights: http://localhost:${PORT}/api/insights`);
 });

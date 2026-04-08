@@ -7,6 +7,29 @@ function buildSessionKey({ siteId, sessionId }) {
 }
 
 function createRedisSessionStore({ redisRuntime, sessionTtlSec, assignmentTtlSec }) {
+  async function listSessionStates({ siteId, limit = 50 }) {
+    const client = await redisRuntime.connect();
+    const pattern = buildSessionKey({ siteId, sessionId: "*" });
+    const keys = await client.keys(pattern);
+    if (keys.length === 0) return [];
+
+    const values = await client.mget(keys);
+    const items = [];
+    for (let i = 0; i < keys.length; i += 1) {
+      const value = values[i];
+      if (!value) continue;
+      try {
+        items.push(JSON.parse(value));
+      } catch {
+        continue;
+      }
+    }
+
+    return items
+      .sort((a, b) => (Number(b?.last_ts) || 0) - (Number(a?.last_ts) || 0))
+      .slice(0, Math.max(1, Math.min(Number(limit) || 50, 200)));
+  }
+
   async function setVariantAssignment({ siteId, experimentKey, anonUserId, variant, version }) {
     const client = await redisRuntime.connect();
     const key = buildAssignmentKey({ siteId, experimentKey, anonUserId });
@@ -48,6 +71,7 @@ function createRedisSessionStore({ redisRuntime, sessionTtlSec, assignmentTtlSec
   }
 
   return {
+    listSessionStates,
     setVariantAssignment,
     getVariantAssignment,
     upsertSessionState,

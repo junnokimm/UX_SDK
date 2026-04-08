@@ -47,6 +47,7 @@
     selectedExperimentKey: null,
     latestDraft: null,
     chatWidget: null,
+    sessionsSource: "analytics",
   };
 
   function resolveSiteId() {
@@ -239,9 +240,23 @@
     return j;
   }
   async function fetchSessions() {
-    const r = await fetch(`/api/sessions?site_id=${encodeURIComponent(getCurrentSiteId())}&limit=12`);
+    const siteId = encodeURIComponent(getCurrentSiteId());
+
+    try {
+      const realtimeResponse = await fetch(`/api/realtime/sessions?site_id=${siteId}&limit=12`);
+      const realtimeJson = await realtimeResponse.json();
+      if (realtimeJson?.ok) {
+        state.sessionsSource = realtimeJson.source || "redis";
+        return Array.isArray(realtimeJson.sessions) ? realtimeJson.sessions : [];
+      }
+    } catch (_) {
+      // fallback to analytics sessions below
+    }
+
+    const r = await fetch(`/api/sessions?site_id=${siteId}&limit=12`);
     const j = await r.json();
     if (!j?.ok) throw new Error(j?.reason || "sessions failed");
+    state.sessionsSource = "analytics";
     return j.sessions || [];
   }
   async function fetchLabelsSummary() {
@@ -398,6 +413,23 @@
   function renderSessions(sessions) {
     if (!Array.isArray(sessions) || sessions.length === 0) {
       sessionsBody.innerHTML = '<tr><td colspan="9" class="muted">세션 데이터가 없습니다.</td></tr>';
+      return;
+    }
+
+    if (state.sessionsSource === "redis") {
+      sessionsBody.innerHTML = sessions.map((session) => `
+        <tr>
+          <td class="mono">${escapeHtml(session.session_id || "—")}</td>
+          <td><span class="badge label">Realtime</span></td>
+          <td class="mono">—</td>
+          <td class="mono">${fmtDuration((Number(session.last_ts) || 0) - (Number(session.started_at) || 0))}</td>
+          <td class="mono">${fmtInt(session.page_view_count)}</td>
+          <td class="mono">${fmtInt(session.click_count)}</td>
+          <td class="mono">${fmtInt(session.event_count)}</td>
+          <td class="mono">${escapeHtml(session.max_step || "—")}</td>
+          <td class="mono">${session.checkout_completed ? "complete" : (session.checkout_started ? "entered" : "no")}</td>
+        </tr>
+      `).join("");
       return;
     }
 
