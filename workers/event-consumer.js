@@ -6,6 +6,7 @@ const { createKafkaRuntime } = require("../services/runtime/kafka");
 const { createRedisRuntime } = require("../services/runtime/redis");
 const { createConsumedEventStore } = require("../services/stores/consumed-event-store");
 const { createRedisSessionStore } = require("../services/stores/redis-session-store");
+const { createRedisMetricsStore } = require("../services/stores/redis-metrics-store");
 const { mergeSessionState, extractVariantAssignments } = require("../services/analytics/session-state");
 
 loadEnvFromFile();
@@ -30,6 +31,7 @@ const redisSessionStore = redisRuntime
       assignmentTtlSec: infraConfig.redis.assignmentTtlSec,
     })
   : null;
+const redisMetricsStore = redisRuntime ? createRedisMetricsStore({ redisRuntime }) : null;
 
 async function mirrorEventToRedis(event) {
   if (!redisSessionStore) return;
@@ -37,6 +39,14 @@ async function mirrorEventToRedis(event) {
   const assignments = extractVariantAssignments(event);
   for (const assignment of assignments) {
     await redisSessionStore.setVariantAssignment(assignment);
+    if (redisMetricsStore) {
+      await redisMetricsStore.recordExperimentEvent({
+        event,
+        experimentKey: assignment.experimentKey,
+        variant: assignment.variant,
+        goals: event.experiment_goals || ["checkout_complete"],
+      });
+    }
   }
 
   if (event.site_id && event.session_id) {

@@ -18,6 +18,7 @@ const { getInfraConfig } = require("./services/runtime/infra-config");
 const { createKafkaRuntime } = require("./services/runtime/kafka");
 const { createRedisRuntime } = require("./services/runtime/redis");
 const { createRedisSessionStore } = require("./services/stores/redis-session-store");
+const { createRedisMetricsStore } = require("./services/stores/redis-metrics-store");
 
 const {
   computeLabeledSessionSummaries,
@@ -260,6 +261,7 @@ const redisSessionStore = redisRuntime
       assignmentTtlSec: infraConfig.redis.assignmentTtlSec,
     })
   : null;
+const redisMetricsStore = redisRuntime ? createRedisMetricsStore({ redisRuntime }) : null;
 const eventStore = kafkaRuntime
   ? createCompositeEventStore({
       primaryStore: fileEventStore,
@@ -887,10 +889,28 @@ app.get("/api/config", (req, res) => {
  *
  * MVP: events.jsonl 전체를 읽어서 집계(데이터 커지면 스트리밍/DB로 이동 권장)
  */
-app.get("/api/metrics", (req, res) => {
+app.get("/api/metrics", async (req, res) => {
   const site_id = req.query.site_id || "ab-sample";
   const key = String(req.query.key || "");
   if (!key) return res.status(400).json({ ok: false, reason: "missing key" });
+
+  const experiment = experimentStore.getByKey(site_id, key);
+  if (!experiment) {
+    return res.status(404).json({ ok: false, reason: "experiment not found" });
+  }
+
+  if (redisMetricsStore) {
+    const realtime = await redisMetricsStore.getExperimentMetrics({
+      siteId: site_id,
+      key,
+      goals: experiment.goals,
+      experiment,
+    });
+    if (realtime?.ok) {
+      return res.json(realtime);
+    }
+  }
+
   const out = metricsReadModel.getExperimentMetrics({ siteId: site_id, key });
   if (!out.ok && out.reason === "experiment not found") {
     return res.status(404).json(out);
