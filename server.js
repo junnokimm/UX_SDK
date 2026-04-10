@@ -617,6 +617,7 @@ function rewritePreviewText(site, text, contentType, previewPath) {
   if (/text\/html/i.test(contentType)) {
     out = out
       .replace(/(href|src|action)=(["'])\/(?!\/)/g, `$1=$2${assetPrefix}/`)
+      .replace(/(["'`])\/@fs\//g, `$1${assetPrefix}/@fs/`)
       .replace(/(["'`])\/@react-refresh(["'`])/g, `$1${assetPrefix}/@react-refresh$2`)
       .replace(/(["'`])\/(\@react-refresh|\@vite|assets|src|node_modules)\//g, `$1${assetPrefix}/$2/`)
       .replace(/<head([^>]*)>/i, `<head$1>${buildPreviewBootstrap(site, previewPath)}`);
@@ -624,12 +625,15 @@ function rewritePreviewText(site, text, contentType, previewPath) {
 
   if (/javascript|ecmascript|css/i.test(contentType)) {
     out = out
+      .replace(/(["'`])\/@fs\//g, `$1${assetPrefix}/@fs/`)
       .replace(/(["'`])\/@react-refresh(["'`])/g, `$1${assetPrefix}/@react-refresh$2`)
       .replace(/(["'`])\/(assets|src|@react-refresh|@vite|node_modules)\//g, `$1${assetPrefix}/$2/`);
   }
 
   if (/css/i.test(contentType)) {
-    out = out.replace(/url\((["']?)\/(assets|src|node_modules)\//g, `url($1${assetPrefix}/$2/`);
+    out = out
+      .replace(/url\((["']?)\/@fs\//g, `url($1${assetPrefix}/@fs/`)
+      .replace(/url\((["']?)\/(assets|src|node_modules)\//g, `url($1${assetPrefix}/$2/`);
   }
 
   return out;
