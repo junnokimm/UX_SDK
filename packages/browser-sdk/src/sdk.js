@@ -35,6 +35,7 @@
   const LS_SESSION = "sdk_session_v1";
   const LS_BUCKET_PREFIX = "sdk_bucket_";
   const LS_VARIANT = "ab_variant_v1";
+  const LS_PAGE_EXPERIMENTS = "sdk_page_experiments_v1";
 
   function now() { return Date.now(); }
   function randId(prefix) { return `${prefix}_${Math.random().toString(16).slice(2)}_${now().toString(16)}`; }
@@ -78,6 +79,10 @@
     const s = { id: randId("s"), lastActive: t };
     storage.setItem(LS_SESSION, JSON.stringify(s));
     return s.id;
+  }
+
+  function getSessionStorage() {
+    try { return global.sessionStorage || getStorage(); } catch { return getStorage(); }
   }
 
   function fnv1a32(str) {
@@ -237,11 +242,62 @@
       if (config.debug) console.log("[SDK]", ...args);
     }
 
+    function currentPathname() {
+      try { return getLocation().pathname || "/"; } catch { return "/"; }
+    }
+
+    function loadPersistedExperimentMap() {
+      const raw = getSessionStorage().getItem(LS_PAGE_EXPERIMENTS);
+      const parsed = raw ? safeJsonParse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    }
+
+    function savePersistedExperimentMap(map) {
+      getSessionStorage().setItem(LS_PAGE_EXPERIMENTS, JSON.stringify(map || {}));
+    }
+
+    function persistAssignedExperiments(pathname, experiments) {
+      const key = String(pathname || currentPathname() || "/").trim() || "/";
+      const map = loadPersistedExperimentMap();
+      map[key] = Array.isArray(experiments) ? experiments : [];
+      savePersistedExperimentMap(map);
+    }
+
+    function loadPersistedExperimentsForPath(pathname) {
+      const key = String(pathname || currentPathname() || "/").trim() || "/";
+      const map = loadPersistedExperimentMap();
+      const exact = Array.isArray(map[key]) ? map[key] : null;
+      if (exact && exact.length) return exact;
+
+      const prefixes = Object.keys(map)
+        .filter((item) => key.startsWith(item))
+        .sort((a, b) => b.length - a.length);
+      for (const prefix of prefixes) {
+        const match = map[prefix];
+        if (Array.isArray(match) && match.length) return match;
+      }
+      return [];
+    }
+
+    function resolveAssignedExperiments(pathname) {
+      if (Array.isArray(assignedExperiments) && assignedExperiments.length) return assignedExperiments;
+      return loadPersistedExperimentsForPath(pathname);
+    }
+
+    function getExperimentGoals(experiments) {
+      return Array.from(new Set(
+        (Array.isArray(experiments) ? experiments : [])
+          .flatMap((item) => Array.isArray(item?.goals) ? item.goals : [])
+          .filter(Boolean)
+      ));
+    }
+
     function getBaseContext() {
       const doc = getDocument();
       const loc = getLocation();
       const nav = getNavigator();
       const win = getWindow();
+      const experiments = resolveAssignedExperiments(loc.pathname);
       return {
         schema_version: config.schemaVersion,
         app_id: config.appId,
@@ -257,7 +313,8 @@
         anon_user_id: getAnonUserId(),
         session_id: getOrRefreshSessionId(config.sessionTtlMs),
         ui_variant: (getStorage().getItem(LS_VARIANT) || "U"),
-        experiments: assignedExperiments
+        experiments,
+        experiment_goals: getExperimentGoals(experiments)
       };
     }
 
@@ -352,8 +409,15 @@
         const exps = Array.isArray(j.experiments) ? j.experiments : [];
         assignedExperiments = exps.map((exp) => {
           const v = decideVariant(config.siteId, exp.key, exp.traffic, anon, config);
-          return { key: exp.key, variant: v, version: exp.version };
+          return {
+            key: exp.key,
+            variant: v,
+            version: exp.version,
+            url_prefix: exp.url_prefix,
+            goals: Array.isArray(exp.goals) ? exp.goals : []
+          };
         });
+        persistAssignedExperiments(j.pathname || loc.pathname, assignedExperiments);
 
         exps.forEach((exp) => {
           const assigned = assignedExperiments.find((x) => x.key === exp.key);
@@ -365,7 +429,11 @@
           }
         });
 
-        enqueue("ab_config_applied", { experiments: assignedExperiments, pathname: j.pathname });
+        enqueue("ab_config_applied", {
+          experiments: assignedExperiments,
+          pathname: j.pathname,
+          assignment_mode: getAbMode(config)
+        });
         flush();
       } catch (e) {
         log("config fetch error", e);

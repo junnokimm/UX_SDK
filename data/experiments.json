@@ -68,6 +68,41 @@
       "updated_at": 1773912520591,
       "published_at": null,
       "version": 2
+    },
+    {
+      "id": "e5f9b4f42fcf4ab5",
+      "site_id": "legend-ecommerce",
+      "key": "exp_home_cta_v1",
+      "url_prefix": "/",
+      "traffic": {
+        "A": 50,
+        "B": 50
+      },
+      "goals": [
+        "checkout_complete"
+      ],
+      "variants": {
+        "A": [],
+        "B": [
+          {
+            "selector": "span.font-medium",
+            "actions": [
+              {
+                "type": "set_text",
+                "value": "민용"
+              }
+            ],
+            "element_name": "\"[공식몰 단독]\" 텍스트",
+            "label": "\"[공식몰 단독]\" 텍스트 문구 변경",
+            "detail": "새 문구: 민용"
+          }
+        ]
+      },
+      "status": "running",
+      "updated_at": 1775804943414,
+      "published_at": 1775804943414,
+      "archived_at": null,
+      "version": 1
     }
   ]
 }
